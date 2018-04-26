@@ -143,12 +143,13 @@ def diff_positions(inputs, name=None):
         # x = tf.nn.l2_normalize(x, dim=-1) #normalize the last dimension
         x1 = tf.expand_dims(x, 1)  #shape [batch, 1, heads, length_q, length_kv]
         x2 = tf.expand_dims(x, 2)  #shape [batch, heads, 1, length_q, length_kv]
-        cos_diff = tf.subtract(x1, x2) #shape [batch, heads, heads, length_q, length_kv], broadcasting
-        heads = tf.cast(tf.shape(cos_diff)[1], tf.float32)
-        cos_diff = tf.reduce_sum(tf.square(cos_diff), axis=[-4,-3,-2,-1]) / (heads*heads) #shape [batch]
-        cos_diff = tf.negative(tf.sqrt(cos_diff)) + 1.0
+        sos_diff = tf.subtract(x1, x2) #shape [batch, heads, heads, length_q, length_kv], broadcasting
+        heads = tf.cast(tf.shape(sos_diff)[1], tf.float32)
+        length_q = tf.cast(tf.shape(sos_diff)[-2], tf.float32)
+        sos_diff = tf.reduce_sum(tf.square(sos_diff), axis=[-4,-3,-2,-1]) / (heads*heads*length_q) #shape [batch]
+        sos_diff = tf.negative(sos_diff) + 1.0
 
-        return cos_diff
+        return sos_diff
 
 
 def attention_bias(inputs, mode, inf=-1e9, name=None):
