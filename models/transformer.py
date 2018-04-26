@@ -214,7 +214,7 @@ def encoding_graph(features, mode, params):
     if params.disagreement == "positions":
         loss_enc = tf.reduce_mean(sum_diffheads) # sum_diffheads is a vector in [batch]
     else:
-        loss_enc = tf.reduce_sum((sum_diffheads+1.0) * src_mask) / tf.reduce_sum(src_mask)
+        loss_enc = tf.reduce_sum((sum_diffheads) * src_mask) / tf.reduce_sum(src_mask)
 
     return encoder_output, loss_enc
 
@@ -308,7 +308,7 @@ def decoding_graph(features, state, mode, params):
     )
 
     ce = tf.reshape(ce, tf.shape(tgt_seq)) #shape [batch, max_tgt_length]
-    #ce = tf.add(ce, (sum_diffheads+1))    #***add loss in decoder side***
+    #ce = tf.add(ce, (sum_diffheads))    #***add loss in decoder side***
 
     if mode == "eval":
         return -tf.reduce_sum(ce * tgt_mask, axis=1)

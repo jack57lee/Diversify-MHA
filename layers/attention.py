@@ -101,9 +101,10 @@ def diff_outputs(inputs, name=None):
         x = tf.nn.l2_normalize(x, dim=-1) #normalize the last dimension
         x1 = tf.expand_dims(x, 2)  #shape [batch, q_length, 1, heads, channels]
         x2 = tf.expand_dims(x, 3)  #shape [batch, q_length, heads, 1, channels]
-        cos_diff = tf.multiply(x1, x2) #shape [batch, q_length, heads, heads, channels], broadcasting
-        heads = tf.cast(tf.shape(cos_diff)[-2], tf.float32)
-        cos_diff = tf.reduce_sum(cos_diff, axis=[-3,-2,-1]) / (heads*heads) #shape [batch, q_length]
+        cos_diff = tf.reduce_sum(tf.multiply(x1, x2), axis=[-1]) #shape [batch, q_length, heads, heads], broadcasting
+
+        cos_diff_square = tf.reduce_mean(tf.square(cos_diff), axis=[-2,-1])
+        cos_diff = tf.reduce_mean(cos_diff, axis=[-2,-1]) + 1.0  #shape [batch, q_length]
 
         return cos_diff
 
@@ -121,9 +122,10 @@ def diff_subspaces(inputs, name=None):
         x = tf.nn.l2_normalize(x, dim=-1) #normalize the last dimension
         x1 = tf.expand_dims(x, 2)  #shape [batch, length_kv, 1, heads, depth_v]
         x2 = tf.expand_dims(x, 3)  #shape [batch, length_kv, heads, 1, depth_v]
-        cos_diff = tf.multiply(x1, x2) #shape [batch, length_kv, heads, heads, depth_v], broadcasting
-        heads = tf.cast(tf.shape(cos_diff)[-2], tf.float32)
-        cos_diff = tf.reduce_sum(cos_diff, axis=[-3,-2,-1]) / (heads*heads) #shape [batch, length_kv]
+        cos_diff = tf.reduce_sum(tf.multiply(x1, x2), axis=[-1]) #shape [batch, length_kv, heads, heads], broadcasting
+
+        cos_diff_square = tf.reduce_mean(tf.square(cos_diff), axis=[-2,-1])
+        cos_diff = tf.reduce_mean(cos_diff, axis=[-2,-1]) + 1.0  #shape [batch, length_kv]
 
         return cos_diff
 
