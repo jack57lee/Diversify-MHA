@@ -211,8 +211,9 @@ def encoding_graph(features, mode, params):
 
     encoder_output, sum_diffheads = transformer_encoder(encoder_input, enc_attn_bias, params)
 
-    if params.disagreement == "positions":
-        loss_enc = tf.reduce_mean(sum_diffheads) # sum_diffheads is a vector in [batch]
+    if params.disagreement == "positions":  #diff_pos is direct output
+        loss_enc = tf.reduce_sum((1.0 - sum_diffheads) * src_mask) / tf.reduce_sum(src_mask)
+        #loss_enc = -tf.log(tf.reduce_sum((sum_diffheads) * src_mask) / tf.reduce_sum(src_mask))
     else:
         loss_enc = tf.reduce_sum((sum_diffheads) * src_mask) / tf.reduce_sum(src_mask)
 

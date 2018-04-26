@@ -139,15 +139,21 @@ def diff_positions(inputs, name=None):
 
     with tf.name_scope(name, default_name="diff_positions", values=[inputs]):
         x = inputs
-        # x = tf.transpose(x, [0, 2, 1, 3])  #shape [batch, length_kv, heads, depth_v]
-        # x = tf.nn.l2_normalize(x, dim=-1) #normalize the last dimension
+        heads = tf.cast(tf.shape(x)[1], tf.float32)
         x1 = tf.expand_dims(x, 1)  #shape [batch, 1, heads, length_q, length_kv]
         x2 = tf.expand_dims(x, 2)  #shape [batch, heads, 1, length_q, length_kv]
+
         sos_diff = tf.subtract(x1, x2) #shape [batch, heads, heads, length_q, length_kv], broadcasting
-        heads = tf.cast(tf.shape(sos_diff)[1], tf.float32)
-        length_q = tf.cast(tf.shape(sos_diff)[-2], tf.float32)
-        sos_diff = tf.reduce_sum(tf.square(sos_diff), axis=[-4,-3,-2,-1]) / (heads*heads*length_q) #shape [batch]
-        sos_diff = tf.negative(sos_diff) + 1.0
+        sos_diff = tf.transpose(sos_diff, [0, 3, 1, 2, 4]) #shape [batch, length_q, heads, heads, length_kv]
+        sos_diff = tf.reduce_sum(tf.square(sos_diff), axis=[-3,-2,-1]) / (heads*heads) #shape [batch, length_q]
+        # sos_diff_log = tf.negative(tf.log(sos_diff))
+        # sos_diff = tf.negative(sos_diff) + 1.0  # Query side needs mask, which is at outside
+
+        mul_diff = tf.multiply(x1, x2) #shape [batch, heads, heads, length_q, length_kv]
+        mul_diff = tf.transpose(mul_diff, [0, 3, 1, 2, 4]) #shape [batch, length_q, heads, heads, length_kv]
+        mul_diff = tf.reduce_sum(mul_diff, axis=[-3,-2,-1]) / (heads*heads) #shape [batch, length_q]
+        # mul_diff_log = tf.negative(tf.log(mul_diff))
+        #mul_diff = tf.negative(mul_diff) + 1.0  # Query side needs mask, which is at outside
 
         return sos_diff
 
