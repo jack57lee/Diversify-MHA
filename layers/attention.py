@@ -155,6 +155,10 @@ def diff_positions(inputs, name=None):
         # mul_diff_log = tf.negative(tf.log(mul_diff))
         #mul_diff = tf.negative(mul_diff) + 1.0  # Query side needs mask, which is at outside
 
+        cos_diff = tf.multiply(tf.nn.l2_normalize(x1, dim=-1), tf.nn.l2_normalize(x2, dim=-1))
+        cos_diff = tf.transpose(cos_diff, [0, 3, 1, 2, 4]) #shape [batch, length_q, heads, heads, length_kv]
+        cos_diff = tf.reduce_sum(cos_diff, axis=[-3,-2,-1]) / (heads*heads) + 1.0 #shape [batch, length_q]
+
         return sos_diff
 
 

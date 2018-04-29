@@ -309,11 +309,11 @@ def decoding_graph(features, state, mode, params):
     )
 
     ce = tf.reshape(ce, tf.shape(tgt_seq)) #shape [batch, max_tgt_length]
-    #ce = tf.add(ce, (sum_diffheads))    #***add loss in decoder side***
 
     if mode == "eval":
         return -tf.reduce_sum(ce * tgt_mask, axis=1)
 
+    #ce = tf.add(ce, (sum_diffheads))    #***add loss in decoder side***
     loss = tf.reduce_sum(ce * tgt_mask) / tf.reduce_sum(tgt_mask)
 
     return loss
