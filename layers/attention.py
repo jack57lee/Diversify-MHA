@@ -106,7 +106,7 @@ def diff_outputs(inputs, name=None):
         cos_diff_square = tf.reduce_mean(tf.square(cos_diff), axis=[-2,-1])
         cos_diff = tf.reduce_mean(cos_diff, axis=[-2,-1]) + 1.0  #shape [batch, q_length]
 
-        return cos_diff
+        return cos_diff_square
 
 
 def diff_subspaces(inputs, name=None):
@@ -127,7 +127,7 @@ def diff_subspaces(inputs, name=None):
         cos_diff_square = tf.reduce_mean(tf.square(cos_diff), axis=[-2,-1])
         cos_diff = tf.reduce_mean(cos_diff, axis=[-2,-1]) + 1.0  #shape [batch, length_kv]
 
-        return cos_diff
+        return cos_diff_square
 
 
 def diff_positions(inputs, name=None):
@@ -157,10 +157,44 @@ def diff_positions(inputs, name=None):
 
         cos_diff = tf.multiply(tf.nn.l2_normalize(x1, dim=-1), tf.nn.l2_normalize(x2, dim=-1))
         cos_diff = tf.transpose(cos_diff, [0, 3, 1, 2, 4]) #shape [batch, length_q, heads, heads, length_kv]
-        cos_diff = tf.reduce_sum(cos_diff, axis=[-3,-2,-1]) / (heads*heads) + 1.0 #shape [batch, length_q]
+        cos_diff = tf.reduce_sum(cos_diff, axis=[-3,-2,-1]) / (heads*heads) #shape [batch, length_q], no need to plus one
 
         return sos_diff
 
+
+def heads_classification(inputs, name=None):
+    """ Calculate the cross_entropy of 8 heads classification
+    :param inputs: A tensor with shape [batch, heads, len_q, channels]
+    :param name: An optional string
+    :returns: A tensor with shape [1], reduce_mean
+    """
+
+    with tf.name_scope(name, default_name="heads_classification", values=[inputs]):
+        x = inputs
+        batch = tf.shape(x)[0]
+        heads = tf.shape(x)[1]
+        len_q = tf.shape(x)[2]
+        channels = tf.shape(x)[3]
+        label = tf.range(heads) #shape [heads]
+
+        shape = [channels, heads]
+        matrix = tf.get_variable("matrix", shape, dtype=tf.float32)
+        bias = tf.get_variable("bias", [heads], dtype=tf.float32)
+        x = tf.transpose(x, [0, 2, 1, 3])  #shape [batch, len_q, heads, channels]
+
+        logit_word = tf.matmul(x, matrix)  #shape [batch, len_q, heads, heads]
+        logit_word = tf.nn.bias_add(logit_word, bias)
+        label_word = tf.tile(tf.expand_dims(tf.expand_dims(label,0),0), [batch,len_q,1]) #shape[batch,len_q,heads]
+        ce_word = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label_word,logits=logit_word) #shape[batch,len_q,heads]
+        output_word = tf.reduce_mean(ce_word)
+
+        logit_senten = tf.matmul(tf.reduce_mean(x,axis=[1]), matrix)  #shape [batch, heads, heads]
+        logit_senten = tf.nn.bias_add(logit_senten, bias)
+        label_senten = tf.tile(tf.expand_dims(label, 0), [batch, 1]) #shape[batch, heads]
+        ce_senten = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label_senten,logits=logit_senten) #shape[batch,heads]
+        output_senten = tf.reduce_mean(ce_senten)
+
+        return output_senten
 
 def attention_bias(inputs, mode, inf=-1e9, name=None):
     """ A bias tensor used in attention mechanism
@@ -422,11 +456,14 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         
         diff_output = diff_outputs(results["outputs"]) #shape [batch, q_length]
         diff_position = diff_positions(weights)
+        head_classification = heads_classification(results["outputs"]) #shape []
 
         if params.disagreement == "outputs":
             diffheads = diff_output
         elif params.disagreement == "subspaces":
             diffheads = diff_subspace
+        elif params.disagreement == "classification":
+            diffheads = head_classification
         else:
             diffheads = diff_position
 
