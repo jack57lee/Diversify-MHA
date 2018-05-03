@@ -171,28 +171,35 @@ def heads_classification(inputs, name=None):
 
     with tf.name_scope(name, default_name="heads_classification", values=[inputs]):
         x = inputs
-        batch = x.shape[0].value
-        heads = x.shape[1].value
-        len_q = x.shape[2].value
-        channels = x.shape[3].value
-        label = tf.range(heads) #shape [heads]
+        batch = tf.shape(x)[0] # is None
+        heads = x.shape[1].value # 8
+        len_q = tf.shape(x)[2] # is None
+        channels = x.shape[3].value # 64
 
         shape = [channels, heads]
         matrix = tf.get_variable("matrix", shape, dtype=tf.float32)
         bias = tf.get_variable("bias", [heads], dtype=tf.float32)
         x = tf.transpose(x, [0, 2, 1, 3])  #shape [batch, len_q, heads, channels]
 
+        ones = tf.ones([batch, len_q, 1], tf.int32) #shape [batch, len_q, 1]
+        label_list = list()
+        for i in range(heads):
+            label_list.append(ones*i)
+        label_word = tf.reshape(tf.concat(label_list, 2), [-1]) #shape [batch*len_q*heads]
         x_word = tf.reshape(x, [-1, channels])
         logit_word = tf.matmul(x_word, matrix)  #shape [batch*len_q*heads, heads]
         logit_word = tf.nn.bias_add(logit_word, bias)
-        label_word = tf.tile(label, [batch*len_q]) #shape[batch*len_q*heads]
         ce_word = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label_word,logits=logit_word) #shape[batch*len_q*heads]
         output_word = tf.reduce_mean(ce_word)
 
+        ones = tf.ones([batch, 1], tf.int32) #shape [batch, 1]
+        label_list = list()
+        for i in range(heads):
+            label_list.append(ones*i)
+        label_senten = tf.reshape(tf.concat(label_list, 1), [-1]) #shape [batch*heads]
         x_senten = tf.reshape(tf.reduce_mean(x,axis=[1]), [-1, channels]) #shape [batch*heads, channels]
         logit_senten = tf.matmul(x_senten, matrix)  #shape [batch*heads, heads]
         logit_senten = tf.nn.bias_add(logit_senten, bias)
-        label_senten = tf.tile(label, [batch]) #shape[batch*heads]
         ce_senten = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label_senten,logits=logit_senten) #shape[batch*heads]
         output_senten = tf.reduce_mean(ce_senten)
 
