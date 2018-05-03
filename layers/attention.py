@@ -162,44 +162,36 @@ def diff_positions(inputs, name=None):
         return sos_diff
 
 
-def heads_classification(inputs, name=None):
+def heads_classification(inputs, myMatrix, myBias,name=None):
     """ Calculate the cross_entropy of 8 heads classification
     :param inputs: A tensor with shape [batch, heads, len_q, channels]
     :param name: An optional string
     :returns: A tensor with shape [1], reduce_mean
     """
 
-    with tf.name_scope(name, default_name="heads_classification", values=[inputs]):
+    with tf.name_scope(name, default_name="heads_classification", values=[inputs,myMatrix,myBias]):
         x = inputs
         batch = tf.shape(x)[0] # is None
         heads = x.shape[1].value # 8
         len_q = tf.shape(x)[2] # is None
         channels = x.shape[3].value # 64
-
-        shape = [channels, heads]
-        matrix = tf.get_variable("matrix", shape, dtype=tf.float32)
-        bias = tf.get_variable("bias", [heads], dtype=tf.float32)
+        label = tf.range(heads) #shape [heads]
         x = tf.transpose(x, [0, 2, 1, 3])  #shape [batch, len_q, heads, channels]
 
-        ones = tf.ones([batch, len_q, 1], tf.int32) #shape [batch, len_q, 1]
-        label_list = list()
-        for i in range(heads):
-            label_list.append(ones*i)
-        label_word = tf.reshape(tf.concat(label_list, 2), [-1]) #shape [batch*len_q*heads]
+        if myMatrix is None:
+            return 0.0
+
+        label_word = tf.tile(label, [batch*len_q]) #shape[batch*len_q*heads]
         x_word = tf.reshape(x, [-1, channels])
-        logit_word = tf.matmul(x_word, matrix)  #shape [batch*len_q*heads, heads]
-        logit_word = tf.nn.bias_add(logit_word, bias)
+        logit_word = tf.matmul(x_word, myMatrix)  #shape [batch*len_q*heads, heads]
+        logit_word = tf.nn.bias_add(logit_word, myBias)
         ce_word = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label_word,logits=logit_word) #shape[batch*len_q*heads]
         output_word = tf.reduce_mean(ce_word)
 
-        ones = tf.ones([batch, 1], tf.int32) #shape [batch, 1]
-        label_list = list()
-        for i in range(heads):
-            label_list.append(ones*i)
-        label_senten = tf.reshape(tf.concat(label_list, 1), [-1]) #shape [batch*heads]
+        label_senten = tf.tile(label, [batch]) #shape[batch*heads]
         x_senten = tf.reshape(tf.reduce_mean(x,axis=[1]), [-1, channels]) #shape [batch*heads, channels]
-        logit_senten = tf.matmul(x_senten, matrix)  #shape [batch*heads, heads]
-        logit_senten = tf.nn.bias_add(logit_senten, bias)
+        logit_senten = tf.matmul(x_senten, myMatrix)  #shape [batch*heads, heads]
+        logit_senten = tf.nn.bias_add(logit_senten, myBias)
         ce_senten = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label_senten,logits=logit_senten) #shape[batch*heads]
         output_senten = tf.reduce_mean(ce_senten)
 
@@ -392,7 +384,7 @@ def multiplicative_attention(queries, keys, values, bias, keep_prob=None,
 
 
 def multihead_attention(queries, memories, bias, num_heads, key_size,
-                        value_size, output_size, params, keep_prob=None, output=True,
+                        value_size, output_size, params, keep_prob=None, myMatrix=None, myBias=None, output=True,
                         state=None, dtype=None, scope=None):
     """ Multi-head scaled-dot-product attention with input/output
         transformations.
@@ -465,7 +457,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         
         diff_output = diff_outputs(results["outputs"]) #shape [batch, q_length]
         diff_position = diff_positions(weights)
-        head_classification = heads_classification(results["outputs"]) #shape []
+        head_classification = heads_classification(results["outputs"], myMatrix, myBias) #shape []
 
         if params.disagreement == "outputs":
             diffheads = diff_output
