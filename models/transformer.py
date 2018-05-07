@@ -54,10 +54,14 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
             layer_name = "layer_%d" % layer
             with tf.variable_scope("layer_%d" % layer):
                 with tf.variable_scope("self_attention"):
-                    myMatrix = tf.get_variable("myMatrix", [64,8], dtype=tf.float32, 
+                    if params.disagreement == "classification":
+                        myMatrix = tf.get_variable("myMatrix", [64,8], dtype=tf.float32, 
                     				initializer=tf.random_normal_initializer(0.0, params.hidden_size ** -0.5))
-                    myBias = tf.get_variable("myBias", [8], dtype=tf.float32, 
+                        myBias = tf.get_variable("myBias", [8], dtype=tf.float32, 
                     				initializer=tf.random_normal_initializer(0.0, params.hidden_size ** -0.5))
+                    else:
+                        myMatrix = None
+                        myBias = None
                     y = layers.attention.multihead_attention(
                         _layer_process(x, params.layer_preprocess),
                         None,
@@ -164,7 +168,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
         if params.disagreement == "subspaces":
             sum_diffheads = sum_diffheads_self, sum_diffheads_ecdc  #different length in source and target (values)
         else:
-            sum_diffheads = tf.reduce_mean([sum_diffheads_self, sum_diffheads_ecdc], 0) # shape [batch, len_q]
+            sum_diffheads = tf.reduce_sum([sum_diffheads_self, sum_diffheads_ecdc], 0) # shape [batch, len_q]
 
         if state is not None:
             return outputs, sum_diffheads, next_state
@@ -217,13 +221,8 @@ def encoding_graph(features, mode, params):
 
     encoder_output, sum_diffheads = transformer_encoder(encoder_input, enc_attn_bias, params)
 
-    if params.disagreement == "positions":  #diff_pos is direct output
-        loss_enc = tf.reduce_sum((sum_diffheads) * src_mask) / tf.reduce_sum(src_mask)
-        #loss_enc = -tf.log(tf.reduce_sum((sum_diffheads) * src_mask) / tf.reduce_sum(src_mask))
-    elif params.disagreement == "classification":
-    	loss_enc = sum_diffheads
-    else:
-        loss_enc = tf.reduce_sum((sum_diffheads) * src_mask) / tf.reduce_sum(src_mask)
+    # Uniform encoder loss, classification is also same
+    loss_enc = tf.reduce_sum((sum_diffheads) * src_mask) / tf.reduce_sum(src_mask)
 
     return encoder_output, loss_enc
 

@@ -159,7 +159,7 @@ def diff_positions(inputs, name=None):
         cos_diff = tf.transpose(cos_diff, [0, 3, 1, 2, 4]) #shape [batch, length_q, heads, heads, length_kv]
         cos_diff = tf.reduce_sum(cos_diff, axis=[-3,-2,-1]) / (heads*heads) #shape [batch, length_q], no need to plus one
 
-        return sos_diff
+        return mul_diff
 
 
 def heads_classification(inputs, myMatrix, myBias,name=None):
