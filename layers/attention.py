@@ -106,7 +106,7 @@ def diff_outputs(inputs, name=None):
         cos_diff_square = tf.reduce_mean(tf.square(cos_diff), axis=[-2,-1])
         cos_diff = tf.reduce_mean(cos_diff, axis=[-2,-1]) + 1.0  #shape [batch, q_length]
 
-        return cos_diff_square
+        return cos_diff
 
 
 def diff_subspaces(inputs, name=None):
@@ -127,7 +127,7 @@ def diff_subspaces(inputs, name=None):
         cos_diff_square = tf.reduce_mean(tf.square(cos_diff), axis=[-2,-1])
         cos_diff = tf.reduce_mean(cos_diff, axis=[-2,-1]) + 1.0  #shape [batch, length_kv]
 
-        return cos_diff_square
+        return cos_diff
 
 
 def diff_positions(inputs, name=None):
@@ -195,7 +195,7 @@ def heads_classification(inputs, myMatrix, myBias,name=None):
         ce_senten = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label_senten,logits=logit_senten) #shape[batch*heads]
         output_senten = tf.reduce_mean(ce_senten)
 
-        return output_senten
+        return output_word
 
 def attention_bias(inputs, mode, inf=-1e9, name=None):
     """ A bias tensor used in attention mechanism

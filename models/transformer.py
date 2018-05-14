@@ -166,9 +166,9 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
         sum_diffheads_ecdc = tf.reduce_mean(list(diffheads_ecdc.values()), 0)
 
         if params.disagreement == "subspaces":
-            sum_diffheads = sum_diffheads_self, sum_diffheads_ecdc  #different length in source and target (values)
+            sum_diffheads = sum_diffheads_self#, sum_diffheads_ecdc  #different length in source and target (values)
         else:
-            sum_diffheads = tf.reduce_sum([sum_diffheads_self, sum_diffheads_ecdc], 0) # shape [batch, len_q]
+            sum_diffheads = tf.reduce_mean([sum_diffheads_self, sum_diffheads_ecdc], 0) # shape [batch, len_q]
 
         if state is not None:
             return outputs, sum_diffheads, next_state
