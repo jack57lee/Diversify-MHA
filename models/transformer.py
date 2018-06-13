@@ -333,7 +333,7 @@ def model_graph(features, mode, params):
     }
     output = decoding_graph(features, state, mode, params)
 
-    return output + loss_enc
+    return output #+ loss_enc
 
 
 class Transformer(interface.NMTModel):
@@ -445,7 +445,7 @@ class Transformer(interface.NMTModel):
             adam_beta2=0.98,
             adam_epsilon=1e-9,
             clip_grad_norm=0.0,
-            disagreement="outputs"
+            disagreement="classification"
         )
 
         return params
