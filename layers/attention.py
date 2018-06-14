@@ -493,6 +493,9 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         new_queries *= key_depth_per_head ** -0.5
         x = new_combine_heads(results["outputs"], new_queries)
         
+        if myBias is None:
+            x = x0
+            
         diff_output = diff_outputs(results["outputs"]) #shape [batch, q_length]
         diff_position = diff_positions(weights)
         head_classification = heads_classification(results["outputs"], myMatrix, myBias) #shape []

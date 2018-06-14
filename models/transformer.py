@@ -61,7 +61,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     				initializer=tf.random_normal_initializer(0.0, params.hidden_size ** -0.5))
                     else:
                         myMatrix = None
-                        myBias = None
+                        myBias = 1
                     y = layers.attention.multihead_attention(
                         _layer_process(x, params.layer_preprocess),
                         None,
