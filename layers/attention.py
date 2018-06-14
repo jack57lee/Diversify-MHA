@@ -88,6 +88,38 @@ def combine_heads(inputs, name=None):
         return x
 
 
+def new_combine_heads(inputs, queries, name=None):
+    """ Combine heads in high order
+    :param inputs: A tensor with shape [batch, heads, length, channels]
+    :param queries: A tensor with shape [batch, length_q, key_size], already linear and scale
+    :returns: A tensor with shape [batch, length, heads * channels]
+    channels=64, key_size=512 for base model
+    """
+
+    with tf.name_scope(name, default_name="new_combine_heads", values=[inputs,queries]):
+        x = inputs
+        heads = x.shape[1].value # 8
+        x = tf.transpose(x, [0, 2, 1, 3]) #shape [batch, q_length, heads, channels]
+        old_shape = x.get_shape().dims
+        a, b = old_shape[-2:]
+        new_shape = old_shape[:-2] + [a * b if a and b else None]
+        c = tf.reshape(x, tf.concat([tf.shape(x)[:-2], [-1]], 0))
+        c.set_shape(new_shape) #[batch, q_length, heads * channels]
+
+        x_tile = tf.tile(x, [1, 1, 1, heads]) #[batch, q_length, heads, channels*heads]
+        c1 = tf.expand_dims(c, 2)  #[batch, q_length, 1, channels*heads]
+        d = c1 - x_tile #broadcasting, [batch, q_length, heads, channels*heads]
+        d = tf.concat([c1, d], axis=-2) #[batch, q_length, 1+heads, channels*heads]
+
+        queries = tf.expand_dims(queries, 2)  #[batch, q_length, 1, key_size]
+        logits = tf.matmul(queries, d, transpose_b=True) #[batch, q_length, 1, 1+heads]
+        weights = tf.nn.softmax(logits, name="QHattn_weights")
+        outputs = tf.matmul(weights, d) #[batch, q_length, 1, channels*heads]
+        outputs =tf.squeeze(outputs)
+
+        return outputs
+
+
 def diff_outputs(inputs, name=None):
     """ Calculate the differences of all heads outputs
     :param inputs: A tensor with shape [batch, heads, q_length, channels]
@@ -453,7 +485,12 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
 
         # combine heads
         weights = results["weights"]
-        x = combine_heads(results["outputs"])
+        x0 = combine_heads(results["outputs"])
+
+        # new combine heads
+        new_queries = linear(queries, key_size, True, True, scope="new_q_transform")
+        new_queries *= key_depth_per_head ** -0.5
+        x = new_combine_heads(results["outputs"], new_queries)
         
         diff_output = diff_outputs(results["outputs"]) #shape [batch, q_length]
         diff_position = diff_positions(weights)
