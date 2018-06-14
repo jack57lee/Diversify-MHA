@@ -115,7 +115,8 @@ def new_combine_heads(inputs, queries, name=None):
         logits = tf.matmul(queries, d, transpose_b=True) #[batch, q_length, 1, 1+heads]
         weights = tf.nn.softmax(logits, name="QHattn_weights")
         outputs = tf.matmul(weights, d) #[batch, q_length, 1, channels*heads]
-        outputs =tf.squeeze(outputs)
+        outputs = tf.squeeze(outputs)
+        outputs.set_shape(new_shape)
 
         return outputs
 
