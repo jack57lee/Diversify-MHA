@@ -86,7 +86,7 @@ def default_parameters():
         learning_rate_decay="linear_warmup_rsqrt_decay",
         learning_rate_boundaries=[0],
         learning_rate_values=[0.0],
-        keep_checkpoint_max=20,
+        keep_checkpoint_max=5,
         keep_top_checkpoint_max=5,
         # Validation
         eval_steps=1000,

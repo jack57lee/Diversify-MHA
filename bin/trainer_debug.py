@@ -23,6 +23,8 @@ import thumt.utils.optimize as optimize
 import thumt.utils.parallel as parallel
 import thumt.utils.utils as utils
 
+from tensorflow.python import debug as tf_debug
+
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser(
@@ -83,10 +85,10 @@ def default_parameters():
         learning_rate_decay="linear_warmup_rsqrt_decay",
         learning_rate_boundaries=[0],
         learning_rate_values=[0.0],
-        keep_checkpoint_max=5,
+        keep_checkpoint_max=20,
         keep_top_checkpoint_max=5,
         # Validation
-        eval_steps=1000,
+        eval_steps=2000,
         eval_secs=0,
         eval_batch_size=32,
         top_beams=1,
@@ -413,6 +415,8 @@ def main(args):
                 for i in range(params.update_cycle):
                     utils.session_run(sess, ops["collect_op"])
                 utils.session_run(sess, ops["scale_op"])
+                #sess.run(ops["train_op"])
+                sess = tf_debug.LocalCLIDebugWrapperSession(sess)
                 sess.run(ops["train_op"])
 
 
