@@ -122,6 +122,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                         params.hidden_size,
                         params,
                         1.0 - params.attention_dropout,
+                        myBias=1,
                         state=layer_state
                     )
 
@@ -144,6 +145,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                         params.hidden_size,
                         params,
                         1.0 - params.attention_dropout,
+                        myBias=1,
                     )
 
                     diffheads_ecdc[layer_name] = y["diffheads"]

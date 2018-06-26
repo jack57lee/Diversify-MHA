@@ -108,15 +108,15 @@ def new_combine_heads(inputs, queries, name=None):
 
         x_tile = tf.tile(x, [1, 1, 1, heads]) #[batch, q_length, heads, channels*heads]
         c1 = tf.expand_dims(c, 2)  #[batch, q_length, 1, channels*heads]
-        d = c1 - x_tile #broadcasting, [batch, q_length, heads, channels*heads]
-        #d = tf.multiply(c1, x_tile)
-        d = tf.concat([c1, d], axis=-2) #[batch, q_length, 1+heads, channels*heads]
+        d1 = c1 - x_tile #broadcasting, [batch, q_length, heads, channels*heads]
+        d2 = tf.multiply(c1, x_tile)
+        d = tf.concat([c1, d1], axis=-2) #[batch, q_length, 1+heads, channels*heads]
 
         queries = tf.expand_dims(queries, 2)  #[batch, q_length, 1, key_size]
         logits = tf.matmul(queries, d, transpose_b=True) #[batch, q_length, 1, 1+heads]
         weights = tf.nn.softmax(logits, name="QHattn_weights")
         outputs = tf.matmul(weights, d) #[batch, q_length, 1, channels*heads]
-        outputs = tf.squeeze(outputs)
+        outputs = tf.reshape(outputs, tf.concat([tf.shape(x)[:-2], [-1]], 0))
         outputs.set_shape(new_shape)
 
         return outputs
