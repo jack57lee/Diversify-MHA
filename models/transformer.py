@@ -447,7 +447,7 @@ class Transformer(interface.NMTModel):
             adam_beta2=0.98,
             adam_epsilon=1e-9,
             clip_grad_norm=0.0,
-            disagreement="classification"
+            disagreement="outputs"
         )
 
         return params
