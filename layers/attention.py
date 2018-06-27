@@ -164,7 +164,7 @@ def new_combine_heads_3(inputs, queries, scope=None):
     channels=64, key_size=512 for base model
     """
 
-    with tf.variable_scope(scope, default_name="new_combine_heads_3", values=[inputs,queries], dtype=dtype):
+    with tf.variable_scope(scope, default_name="new_combine_heads_3", values=[inputs,queries]):
         x = inputs
         heads = x.shape[1].value # 8
         channels = x.shape[3].value # 64
