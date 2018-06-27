@@ -156,6 +156,34 @@ def new_combine_heads_2(inputs, name=None):
         return outputs
 
 
+def new_combine_heads_3(inputs, queries, scope=None):
+    """ Combine heads in weighted branchs
+    :param inputs: A tensor with shape [batch, heads, length, channels]
+    :param queries: A tensor with shape [batch, length_q, key_size], already linear and scale
+    :returns: A tensor with shape [batch, length, heads * channels]
+    channels=64, key_size=512 for base model
+    """
+
+    with tf.variable_scope(scope, default_name="new_combine_heads_3", values=[inputs,queries], dtype=dtype):
+        x = inputs
+        heads = x.shape[1].value # 8
+        channels = x.shape[3].value # 64
+        x = tf.transpose(x, [0, 2, 1, 3]) #shape [batch, q_length, heads, channels]
+        old_shape = x.get_shape().dims
+        a, b = old_shape[-2:]
+        new_shape = old_shape[:-2] + [a * b if a and b else None]
+        d = linear(x, heads*channels, True, True, scope="x_transform") #[batch, q_length, heads, h*channels]
+
+        queries = tf.expand_dims(queries, 2)  #[batch, q_length, 1, key_size]
+        logits = tf.matmul(queries, d, transpose_b=True) #[batch, q_length, 1, heads]
+        weights = tf.nn.softmax(logits, name="QHatn_weights")
+        outputs = tf.matmul(weights, d) #[batch, q_length, 1, channels*heads]
+        outputs = tf.reshape(outputs, tf.concat([tf.shape(x)[:-2], [-1]], 0))
+        outputs.set_shape(new_shape)
+
+        return outputs
+
+
 def diff_outputs(inputs, name=None):
     """ Calculate the differences of all heads outputs
     :param inputs: A tensor with shape [batch, heads, q_length, channels]
@@ -529,7 +557,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         x = new_combine_heads(results["outputs"], new_queries)
         
         if myBias is None:
-            x = x0
+            x = x0 # default use both enc and dec
             
         diff_output = diff_outputs(results["outputs"]) #shape [batch, q_length]
         diff_position = diff_positions(weights)
@@ -550,6 +578,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         else:
             outputs = x
 
+        # outputs = new_combine_heads_3(results["outputs"], new_queries)
         outputs = {"weights": weights, "outputs": outputs, "diffheads": diffheads}
 
         if state is not None:
