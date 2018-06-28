@@ -88,6 +88,28 @@ def combine_heads(inputs, name=None):
         return x
 
 
+def cnn_combine_heads(inputs, scope=None):
+    #Combine heads with cnn
+
+    with tf.variable_scope(scope, default_name="cnn_combine_heads", values=[inputs]):
+        x = inputs
+        heads = x.shape[1].value # 8
+        channels = x.shape[3].value # 64
+        x = tf.transpose(x, [0, 2, 1, 3]) #shape [batch, q_length, heads, channels]
+        old_shape = x.get_shape().dims
+        a, b = old_shape[-2:]
+        filters = 8
+        new_shape = old_shape[:-2] + [a * b * filters]
+        y = tf.reshape(x, [-1, heads, channels]) # [batch*q_length, heads, channels]
+        y = tf.expand_dims(y, 3) # [batch*q_length, heads, channels, 1], 4D tensor for CNN
+
+        conv = tf.layers.conv2d(inputs=y, filters=filters, kernel_size=3, padding="same", activation=tf.nn.relu)
+        outputs = tf.reshape(conv, tf.concat([tf.shape(x)[:-2], [-1]], 0))
+        outputs.set_shape(new_shape) #[batch, q_length, heads*channels*filters]
+
+        return outputs
+
+
 def new_combine_heads(inputs, queries, name=None):
     """ Combine heads in high order
     :param inputs: A tensor with shape [batch, heads, length, channels]
@@ -555,6 +577,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         new_queries = linear(queries, key_size, True, True, scope="new_q_transform")
         new_queries *= key_depth_per_head ** -0.5
         x = new_combine_heads(results["outputs"], new_queries)
+        # x = cnn_combine_heads(results["outputs"])
         
         if myBias is None:
             x = x0 # default use both enc and dec
