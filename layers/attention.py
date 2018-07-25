@@ -145,7 +145,7 @@ def new_combine_heads(inputs, queries, name=None):
 
 
 def new_combine_heads_3(inputs, queries, scope=None):
-    """ Combine heads in weighted branchs
+    """ Combine heads in weighted branchs, and channel-wise gate
     :param inputs: A tensor with shape [batch, heads, length, channels]
     :param queries: A tensor with shape [batch, length_q, key_size], already linear and scale
     :returns: A tensor with shape [batch, length, heads * channels]
@@ -162,12 +162,23 @@ def new_combine_heads_3(inputs, queries, scope=None):
         new_shape = old_shape[:-2] + [a * b if a and b else None]
         d = linear(x, heads*channels, True, True, scope="x_transform") #[batch, q_length, heads, h*channels]
 
+        # head_weight = tf.get_variable("head_weight", [8], dtype=tf.float32, 
+        #                             initializer=tf.random_normal_initializer(0.0, params.hidden_size ** -0.5))
+        # head_weight = tf.nn.softmax(head_weight, name="head_weight")
+        # head_weight = tf.expand_dims(tf.expand_dims(head_weight, 0), 0) #shape [1,1,8]
+        # x_sum = tf.reduce_sum(x, axis=[-1]) #shape [batch, q_length, heads]
+        # ones = tf.ones_like(x_sum, dtype=tf.float32)
+        # weights = ones * head_weight #shape [batch, q_length, heads]
+        # weights = tf.expand_dims(weights, 2) #[batch, q_length, 1, heads]
+        # outputs = tf.matmul(weights, d) #[batch, q_length, 1, channels*heads]
+        
         queries = tf.expand_dims(queries, 2)  #[batch, q_length, 1, key_size]
-        logits = tf.matmul(queries, d, transpose_b=True) #[batch, q_length, 1, heads]
-        weights = tf.nn.softmax(logits, name="QHatn_weights")
-        outputs = tf.matmul(weights, d) #[batch, q_length, 1, channels*heads]
-        outputs = tf.reshape(outputs, tf.concat([tf.shape(x)[:-2], [-1]], 0))
-        outputs.set_shape(new_shape)
+        queries = tf.tile(queries,[1,1,heads,1]) #[batch, q_length, heads, key_size]
+        concat = tf.concat([queries, d], -1) #[batch, q_length, heads, key_size*2]
+        gates = linear(concat, heads*channels, True, True, scope="gate_transform") #[batch,q_len,heads,k_s]
+        outputs = d * tf.nn.softmax(gates, axis=[-2])
+        
+        outputs = tf.reduce_sum(outputs, axis=[-2]) #[batch, q_length, channels*heads]
 
         return outputs
 
