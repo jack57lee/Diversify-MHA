@@ -176,7 +176,7 @@ def new_combine_heads_3(inputs, queries, scope=None):
         queries = tf.tile(queries,[1,1,heads,1]) #[batch, q_length, heads, key_size]
         concat = tf.concat([queries, d], -1) #[batch, q_length, heads, key_size*2]
         gates = linear(concat, heads*channels, True, True, scope="gate_transform") #[batch,q_len,heads,k_s]
-        outputs = d * tf.nn.softmax(gates, axis=[-2])
+        outputs = d * tf.nn.softmax(gates, axis=-2)
         
         outputs = tf.reduce_sum(outputs, axis=[-2]) #[batch, q_length, channels*heads]
 
