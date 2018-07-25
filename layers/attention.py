@@ -144,40 +144,6 @@ def new_combine_heads(inputs, queries, name=None):
         return outputs
 
 
-def new_combine_heads_2(inputs, name=None):
-    """ Combine heads new, direct concat with pair-wise cos diff
-    :param inputs: A tensor with shape [batch, heads, length, channels]
-    :param name: An optional string
-    :returns: A tensor with shape [batch, length, heads*channels+heads*heads/2]
-    """
-
-    with tf.name_scope(name, default_name="new_combine_heads_2", values=[inputs]):
-        x = inputs
-        x = tf.transpose(x, [0, 2, 1, 3]) #[batch, q_length, heads, channels]
-        old_shape = x.get_shape().dims
-        a, b = old_shape[-2:]
-        new_shape = old_shape[:-2] + [a * b if a and b else None]
-        c = tf.reshape(x, tf.concat([tf.shape(x)[:-2], [-1]], 0))
-        c.set_shape(new_shape) #[batch, q_length, heads * channels]
-
-        x = tf.nn.l2_normalize(x, dim=-1) #normalize the last dimension
-        x1 = tf.expand_dims(x, 2)  #shape [batch, q_length, 1, heads, channels]
-        x2 = tf.expand_dims(x, 3)  #shape [batch, q_length, heads, 1, channels]
-        cos_diff = tf.reduce_sum(tf.multiply(x1, x2), axis=[-1]) #shape [batch, q_length, heads, heads], broadcasting
-        
-        x = cos_diff
-        old_shape = x.get_shape().dims
-        a, b = old_shape[-2:]
-        new_shape = old_shape[:-2] + [a * b if a and b else None]
-        d = tf.reshape(x, tf.concat([tf.shape(x)[:-2], [-1]], 0))
-        d.set_shape(new_shape) #[batch, q_length, heads*heads]
-        d1, d2 = tf.split(d, num_or_size_splits=2, axis=-1) #[batch, q_length, heads*heads/2]
-
-        outputs = tf.concat([c, d1], axis=-1) #[batch, q_length, channels*heads+heads*heads/2]
-
-        return outputs
-
-
 def new_combine_heads_3(inputs, queries, scope=None):
     """ Combine heads in weighted branchs
     :param inputs: A tensor with shape [batch, heads, length, channels]

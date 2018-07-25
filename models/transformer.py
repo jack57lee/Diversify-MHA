@@ -49,6 +49,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                            values=[inputs, bias]):
         x = inputs
         diffheads_self = {}
+        last_y = None
 
         for layer in range(params.num_encoder_layers):
             layer_name = "layer_%d" % layer
@@ -78,8 +79,14 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
 
                     diffheads_self[layer_name] = y["diffheads"]
                     y = y["outputs"]
+                    now_y = y
+                    if last_y is not None:
+                        y = _residual_fn(y, last_y, 1.0 - params.residual_dropout)
+                        y = _layer_process(y, params.layer_postprocess)
+                        now_y = y
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
+                    last_y = now_y
 
                 with tf.variable_scope("feed_forward"):
                     y = _ffn_layer(
@@ -105,6 +112,8 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
         next_state = {}
         diffheads_self = {}
         diffheads_ecdc = {}
+        last_y_dec = None
+        last_y_ecdc = None
 
         for layer in range(params.num_decoder_layers):
             layer_name = "layer_%d" % layer
@@ -131,8 +140,14 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
 
                     diffheads_self[layer_name] = y["diffheads"]
                     y = y["outputs"]
+                    now_y = y
+                    if last_y_dec is not None:
+                        y = _residual_fn(y, last_y_dec, 1.0 - params.residual_dropout)
+                        y = _layer_process(y, params.layer_postprocess)
+                        now_y = y
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
+                    last_y_dec = now_y
 
                 with tf.variable_scope("encdec_attention"):
                     y = layers.attention.multihead_attention(
@@ -150,8 +165,14 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
 
                     diffheads_ecdc[layer_name] = y["diffheads"]
                     y = y["outputs"]
+                    now_y = y
+                    if last_y_ecdc is not None:
+                        y = _residual_fn(y, last_y_ecdc, 1.0 - params.residual_dropout)
+                        y = _layer_process(y, params.layer_postprocess)
+                        now_y = y
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
+                    last_y_ecdc = now_y
 
                 with tf.variable_scope("feed_forward"):
                     y = _ffn_layer(
