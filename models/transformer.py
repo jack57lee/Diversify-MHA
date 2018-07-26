@@ -86,7 +86,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                         now_y = y
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
-                    last_y = now_y
+                    # last_y = now_y
 
                 with tf.variable_scope("feed_forward"):
                     y = _ffn_layer(
@@ -147,7 +147,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                         now_y = y
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
-                    last_y_dec = now_y
+                    # last_y_dec = now_y
 
                 with tf.variable_scope("encdec_attention"):
                     y = layers.attention.multihead_attention(
@@ -172,7 +172,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                         now_y = y
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
-                    last_y_ecdc = now_y
+                    # last_y_ecdc = now_y
 
                 with tf.variable_scope("feed_forward"):
                     y = _ffn_layer(
