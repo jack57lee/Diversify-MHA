@@ -104,6 +104,7 @@ def cnn_combine_heads(inputs, scope=None):
         y = tf.expand_dims(y, 3) # [batch*q_length, heads, channels, 1], 4D tensor for CNN
 
         conv = tf.layers.conv2d(inputs=y, filters=filters, kernel_size=3, padding="same", activation=tf.nn.relu)
+        conv = tf.reduce_max(conv, axis=-3) #max pooling between heads or filters
         outputs = tf.reshape(conv, tf.concat([tf.shape(x)[:-2], [-1]], 0))
         outputs.set_shape(new_shape) #[batch, q_length, heads*channels*filters]
 
