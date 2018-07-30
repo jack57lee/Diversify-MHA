@@ -110,7 +110,7 @@ def cnn_combine_heads(inputs, scope=None):
 
         return outputs
 
-
+'''
 def new_combine_heads(inputs, queries, name=None):
     """ Combine heads in high order
     :param inputs: A tensor with shape [batch, heads, length, channels]
@@ -143,8 +143,8 @@ def new_combine_heads(inputs, queries, name=None):
         outputs.set_shape(new_shape)
 
         return outputs
-
-
+'''
+'''
 def new_combine_heads_3(inputs, queries, scope=None):
     """ Combine heads in weighted branchs, and channel-wise gate
     :param inputs: A tensor with shape [batch, heads, length, channels]
@@ -182,7 +182,7 @@ def new_combine_heads_3(inputs, queries, scope=None):
         outputs = tf.reduce_sum(outputs, axis=[-2]) #[batch, q_length, channels*heads]
 
         return outputs
-
+'''
 
 def diff_outputs(inputs, name=None):
     """ Calculate the differences of all heads outputs
@@ -552,10 +552,10 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         x0 = combine_heads(results["outputs"])
 
         # new combine heads
-        new_queries = linear(queries, key_size, True, True, scope="new_q_transform")
-        new_queries *= key_depth_per_head ** -0.5
-        x = new_combine_heads(results["outputs"], new_queries)
-        # x = cnn_combine_heads(results["outputs"])
+        # new_queries = linear(queries, key_size, True, True, scope="new_q_transform")
+        # new_queries *= key_depth_per_head ** -0.5
+        # x = new_combine_heads(results["outputs"], new_queries)
+        x = cnn_combine_heads(results["outputs"])
         
         if myBias is None:
             x = x0 # default use both enc and dec
@@ -575,7 +575,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
 
         if output:
             outputs = linear(x, output_size, True, True,
-                             scope="output_transform")
+                             scope="cnn_output_transform")
         else:
             outputs = x
 
