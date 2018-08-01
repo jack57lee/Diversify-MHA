@@ -98,16 +98,24 @@ def cnn_combine_heads(inputs, scope=None):
         x = tf.transpose(x, [0, 2, 1, 3]) #shape [batch, q_length, heads, channels]
         old_shape = x.get_shape().dims
         a, b = old_shape[-2:]
-        filters = 4
-        new_shape = old_shape[:-2] + [a * b * filters]
+        filters = 8
+        new_shape = old_shape[:-2] + [a * b]
         y = tf.reshape(x, [-1, heads, channels]) # [batch*q_length, heads, channels]
         y = tf.expand_dims(y, 3) # [batch*q_length, heads, channels, 1], 4D tensor for CNN
+        y0 = tf.transpose(y, [1, 0, 2, 3]) # [heads, batch*q_length, channels, 1]
 
-        conv = tf.layers.conv2d(inputs=y, filters=filters, kernel_size=3, padding="same", activation=tf.nn.relu)
-        # conv = tf.reduce_max(conv, axis=-3) #max pooling between heads or filters
-        outputs = tf.reshape(conv, tf.concat([tf.shape(x)[:-2], [-1]], 0))
-        outputs.set_shape(new_shape) #[batch, q_length, heads*channels*filters]
+        out_list = list()
+        for i in range(1):  # 4:shuffle 3 times, total 4 CNNs
+            if i>0:
+                y0 = tf.random_shuffle(y0)
+            y = tf.transpose(y0, [1, 0, 2, 3]) # [batch*q_length, heads, channels, 1]
+            conv = tf.layers.conv2d(inputs=y, filters=filters, kernel_size=3, padding="same", activation=tf.nn.relu)
+            conv = tf.reduce_max(conv, axis=-1) #max pooling between heads or filters
+            outputs = tf.reshape(conv, tf.concat([tf.shape(x)[:-2], [-1]], 0))
+            outputs.set_shape(new_shape) #[batch, q_length, heads*channels*filters]
+            out_list.append(outputs)
 
+        outputs = tf.reduce_mean(out_list, axis=[0]) # reduce_mean for all CNNs
         return outputs
 
 '''
@@ -575,7 +583,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
 
         if output:
             outputs = linear(x, output_size, True, True,
-                             scope="cnn_output_transform")
+                             scope="output_transform")
         else:
             outputs = x
 
