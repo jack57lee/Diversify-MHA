@@ -55,14 +55,6 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
             layer_name = "layer_%d" % layer
             with tf.variable_scope("layer_%d" % layer):
                 with tf.variable_scope("self_attention"):
-                    if params.disagreement == "classification":
-                        myMatrix = tf.get_variable("myMatrix", [64,8], dtype=tf.float32, 
-                    				initializer=tf.random_normal_initializer(0.0, params.hidden_size ** -0.5))
-                        myBias = tf.get_variable("myBias", [8], dtype=tf.float32, 
-                    				initializer=tf.random_normal_initializer(0.0, params.hidden_size ** -0.5))
-                    else:
-                        myMatrix = None
-                        myBias = 1
                     y = layers.attention.multihead_attention(
                         _layer_process(x, params.layer_preprocess),
                         None,
@@ -73,8 +65,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                         params.hidden_size,
                         params,
                         1.0 - params.attention_dropout,
-                        myMatrix,
-                        myBias,
+                        myBias=1,
                     )
 
                     diffheads_self[layer_name] = y["diffheads"]
