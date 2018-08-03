@@ -292,8 +292,7 @@ def heads_classification(inputs, myMatrix, myBias,name=None):
 
         label_senten = tf.tile(label, [batch]) #shape[batch*heads]
         x_senten = tf.reshape(tf.reduce_mean(x,axis=[1]), [-1, channels]) #shape [batch*heads, channels]
-        logit_senten = tf.matmul(x_senten, myMatrix)  #shape [batch*heads, heads]
-        logit_senten = tf.nn.bias_add(logit_senten, myBias)
+        logit_senten = linear(x_senten, heads, True, True, scope="heads_class")  #shape [batch*heads, heads]
         ce_senten = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label_senten,logits=logit_senten) #shape[batch*heads]
         output_senten = tf.reduce_mean(ce_senten)
 
@@ -560,8 +559,8 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         # new combine heads
         # new_queries = linear(queries, key_size, True, True, scope="new_q_transform")
         # new_queries *= key_depth_per_head ** -0.5
-        x = high_combine_heads(results["outputs"])
-        #x = cnn_combine_heads(results["outputs"])
+        # x = high_combine_heads(results["outputs"])
+        x = cnn_combine_heads(results["outputs"])
         
         if myBias is None:
             x = x0 # default use both enc and dec
