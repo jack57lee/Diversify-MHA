@@ -128,8 +128,8 @@ def cnn_combine_heads(inputs, scope=None):
         outputs = tf.reduce_mean(out_list, axis=[0]) # reduce_mean for all CNNs
         return outputs
 
-'''
-def new_combine_heads(inputs, queries, name=None):
+
+def high_combine_heads(inputs, scope=None):
     """ Combine heads in high order
     :param inputs: A tensor with shape [batch, heads, length, channels]
     :param queries: A tensor with shape [batch, length_q, key_size], already linear and scale
@@ -137,31 +137,23 @@ def new_combine_heads(inputs, queries, name=None):
     channels=64, key_size=512 for base model
     """
 
-    with tf.name_scope(name, default_name="new_combine_heads", values=[inputs,queries]):
+    with tf.variable_scope(scope, default_name="high_combine_heads", values=[inputs]):
         x = inputs
         heads = x.shape[1].value # 8
+        channels = x.shape[3].value # 64
         x = tf.transpose(x, [0, 2, 1, 3]) #shape [batch, q_length, heads, channels]
         old_shape = x.get_shape().dims
         a, b = old_shape[-2:]
         new_shape = old_shape[:-2] + [a * b if a and b else None]
         c = tf.reshape(x, tf.concat([tf.shape(x)[:-2], [-1]], 0))
-        c.set_shape(new_shape) #[batch, q_length, heads * channels]
+        c.set_shape(new_shape) #[batch, length, heads * channels]
 
-        x_tile = tf.tile(x, [1, 1, 1, heads]) #[batch, q_length, heads, channels*heads]
-        c1 = tf.expand_dims(c, 2)  #[batch, q_length, 1, channels*heads]
-        d1 = c1 - x_tile #broadcasting, [batch, q_length, heads, channels*heads]
-        d2 = tf.multiply(c1, x_tile)
-        d = tf.concat([c1, d1], axis=-2) #[batch, q_length, 1+heads, channels*heads]
-
-        queries = tf.expand_dims(queries, 2)  #[batch, q_length, 1, key_size]
-        logits = tf.matmul(queries, d, transpose_b=True) #[batch, q_length, 1, 1+heads]
-        weights = tf.nn.softmax(logits, name="QHattn_weights")
-        outputs = tf.matmul(weights, d) #[batch, q_length, 1, channels*heads]
-        outputs = tf.reshape(outputs, tf.concat([tf.shape(x)[:-2], [-1]], 0))
-        outputs.set_shape(new_shape)
+        d = linear(x, heads*channels, True, True, scope="x_transform") #[batch, q_length, heads, h*channels]
+        outputs = tf.reduce_prod(d, axis=[-2]) #[batch, q_length, channels*heads]
+        # outputs = tf.concat([outputs, c], -1)
 
         return outputs
-'''
+
 '''
 def new_combine_heads_3(inputs, queries, scope=None):
     """ Combine heads in weighted branchs, and channel-wise gate
@@ -568,8 +560,8 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         # new combine heads
         # new_queries = linear(queries, key_size, True, True, scope="new_q_transform")
         # new_queries *= key_depth_per_head ** -0.5
-        # x = new_combine_heads(results["outputs"], new_queries)
-        x = cnn_combine_heads(results["outputs"])
+        x = high_combine_heads(results["outputs"])
+        #x = cnn_combine_heads(results["outputs"])
         
         if myBias is None:
             x = x0 # default use both enc and dec
@@ -589,7 +581,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
 
         if output:
             outputs = linear(x, output_size, True, True,
-                             scope="output_transform")
+                             scope="new_output_transform")
         else:
             outputs = x
 
