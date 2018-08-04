@@ -148,9 +148,14 @@ def high_combine_heads(inputs, scope=None):
         c = tf.reshape(x, tf.concat([tf.shape(x)[:-2], [-1]], 0))
         c.set_shape(new_shape) #[batch, length, heads * channels]
 
-        d = linear(x, heads*channels, True, True, scope="x_transform") #[batch, q_length, heads, h*channels]
-        outputs = tf.reduce_prod(d, axis=[-2]) #[batch, q_length, channels*heads]
+        d = linear(x, 32, False, True, scope="x_transform") #[batch, q_length, heads, 32]
+        d = tf.tanh(d)
+        outputs = tf.reduce_prod(d, axis=[-2]) #[batch, q_length, 32]
         # outputs = tf.concat([outputs, c], -1)
+
+        # c1 = linear(c, 32, True, True, scope="c1_transform") #[batch, q_length, 32]
+        # c2 = linear(c, 32, True, True, scope="c2_transform") #[batch, q_length, 32]
+        # outputs = c1 * c2
 
         return outputs
 
