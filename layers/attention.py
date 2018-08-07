@@ -148,14 +148,17 @@ def high_combine_heads(inputs, scope=None):
         c = tf.reshape(x, tf.concat([tf.shape(x)[:-2], [-1]], 0))
         c.set_shape(new_shape) #[batch, length, heads * channels]
 
-        d = linear(x, 32, False, True, scope="x_transform") #[batch, q_length, heads, 32]
-        d = tf.tanh(d)
-        outputs = tf.reduce_prod(d, axis=[-2]) #[batch, q_length, 32]
+        # d = linear(x, 32, False, True, scope="x_transform") #[batch, q_length, heads, 32]
+        # d = tf.tanh(d)
+        # outputs = tf.reduce_prod(d, axis=[-2]) #[batch, q_length, 32]
         # outputs = tf.concat([outputs, c], -1)
 
-        # c1 = linear(c, 32, True, True, scope="c1_transform") #[batch, q_length, 32]
-        # c2 = linear(c, 32, True, True, scope="c2_transform") #[batch, q_length, 32]
-        # outputs = c1 * c2
+        c1 = linear(c, 512, True, True, scope="c1_transform") #[batch, q_length, 32]
+        c2 = linear(c, 512, True, True, scope="c2_transform") #[batch, q_length, 32]
+        # c1 = tf.tanh(c1)
+        # c2 = tf.tanh(c2)
+        outputs = c1 * c2
+        outputs = tf.concat([outputs, c], -1) #concact to consider first-order
 
         return outputs
 
@@ -564,8 +567,8 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         # new combine heads
         # new_queries = linear(queries, key_size, True, True, scope="new_q_transform")
         # new_queries *= key_depth_per_head ** -0.5
-        # x = high_combine_heads(results["outputs"])
-        x = cnn_combine_heads(results["outputs"])
+        x = high_combine_heads(results["outputs"])
+        # x = cnn_combine_heads(results["outputs"])
         
         if myBias is None:
             x = x0 # default use both enc and dec
