@@ -99,33 +99,15 @@ def cnn_combine_heads(inputs, scope=None):
         old_shape = x.get_shape().dims
         a, b = old_shape[-2:]
         filters = 8
-        new_shape = old_shape[:-2] + [a * b]
+        new_shape = old_shape[:-2] + [a * b * filters]
         y = tf.reshape(x, [-1, heads, channels]) # [batch*q_length, heads, channels]
         y = tf.expand_dims(y, 3) # [batch*q_length, heads, channels, 1], 4D tensor for CNN
 
-        out_list = list()
         conv = tf.layers.conv2d(inputs=y, filters=filters, kernel_size=3, padding="same", activation=tf.nn.relu)
-        conv = tf.reduce_max(conv, axis=-1) #max pooling between heads or filters
+        # conv = tf.reduce_max(conv, axis=-1) #max pooling between heads or filters
         outputs = tf.reshape(conv, tf.concat([tf.shape(x)[:-2], [-1]], 0))
         outputs.set_shape(new_shape) #[batch, q_length, heads*channels*filters]
-        out_list.append(outputs)
 
-        '''
-        y1 = tf.gather(y, [1,3,5,7,2,4,6,8], axis=1) # [batch*q_length, heads, channels, 1]
-        conv = tf.layers.conv2d(inputs=y1, filters=filters, kernel_size=3, padding="same", activation=tf.nn.relu)
-        conv = tf.reduce_max(conv, axis=-1) #max pooling between heads or filters
-        outputs = tf.reshape(conv, tf.concat([tf.shape(x)[:-2], [-1]], 0))
-        outputs.set_shape(new_shape) #[batch, q_length, heads*channels*filters]
-        out_list.append(outputs)
-        y1 = tf.gather(y, [1,4,7,2,5,8,3,6], axis=1) # [batch*q_length, heads, channels, 1]
-        conv = tf.layers.conv2d(inputs=y1, filters=filters, kernel_size=3, padding="same", activation=tf.nn.relu)
-        conv = tf.reduce_max(conv, axis=-1) #max pooling between heads or filters
-        outputs = tf.reshape(conv, tf.concat([tf.shape(x)[:-2], [-1]], 0))
-        outputs.set_shape(new_shape) #[batch, q_length, heads*channels*filters]
-        out_list.append(outputs)
-        '''
-
-        outputs = tf.reduce_mean(out_list, axis=[0]) # reduce_mean for all CNNs
         return outputs
 
 

@@ -116,7 +116,6 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
         diffheads_ecdc = {}
         last_y_dec = None
         last_y_ecdc = None
-        last_y = None
 
         for layer in range(params.num_decoder_layers):
             layer_name = "layer_%d" % layer
@@ -176,13 +175,6 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
                     # last_y_ecdc = now_y
-
-                    now_x = x  #for bi-head aggregation in decoder
-                    if last_y is not None:
-                        x = _residual_fn(last_y, x)
-                        x = _layer_process(x, params.layer_postprocess)
-                        now_x = x #+ last_y_ecdc
-                    # last_y = now_x
 
                 with tf.variable_scope("feed_forward"):
                     y = _ffn_layer(
