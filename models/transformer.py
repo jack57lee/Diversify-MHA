@@ -83,7 +83,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     y = y["outputs"]
                     now_y = y
                     if last_y is not None:
-                        y = _residual_fn(last_y, y)
+                        y = _residual_fn(y, last_y, 1.0 - params.residual_dropout)
                         y = _layer_process(y, params.layer_postprocess)
                         now_y = y #+ last_y #residual or densenet
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
@@ -144,7 +144,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     y = y["outputs"]
                     now_y = y
                     if last_y_dec is not None:
-                        y = _residual_fn(last_y_dec, y)
+                        y = _residual_fn(y, last_y_dec, 1.0 - params.residual_dropout)
                         y = _layer_process(y, params.layer_postprocess)
                         now_y = y #+ last_y_dec
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
@@ -169,7 +169,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     y = y["outputs"]
                     now_y = y
                     if last_y_ecdc is not None:
-                        y = _residual_fn(last_y_ecdc, y)
+                        y = _residual_fn(y, last_y_ecdc, 1.0 - params.residual_dropout)
                         y = _layer_process(y, params.layer_postprocess)
                         now_y = y #+ last_y_ecdc
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
