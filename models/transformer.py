@@ -54,6 +54,156 @@ def _ffn_layer(inputs, hidden_size, output_size, keep_prob=None,
 
         return output
 
+def _ffn_layer_2(inputs, hidden_size, output_size, keep_prob=None,
+              dtype=None, scope=None):
+    with tf.variable_scope(scope, default_name="ffn_layer_2", values=[inputs],
+                           dtype=dtype):
+        with tf.variable_scope("input_layer"):
+            hidden = layers.nn.linear(inputs, hidden_size, True, True)
+
+        if keep_prob and keep_prob < 1.0:
+            hidden = tf.nn.dropout(hidden, keep_prob)
+
+        with tf.variable_scope("output_layer"):
+            output = layers.nn.linear(hidden, output_size, True, True)
+
+        return output
+
+def _ffn_layer_sigmoid(inputs, hidden_size, output_size, keep_prob=None,
+              dtype=None, scope=None):
+    with tf.variable_scope(scope, default_name="ffn_layer_2", values=[inputs],
+                           dtype=dtype):
+        with tf.variable_scope("input_layer"):
+            hidden = layers.nn.linear(inputs, hidden_size, True, True)
+            hidden = tf.nn.sigmoid(hidden)
+
+        if keep_prob and keep_prob < 1.0:
+            hidden = tf.nn.dropout(hidden, keep_prob)
+
+        with tf.variable_scope("output_layer"):
+            output = layers.nn.linear(hidden, output_size, True, True)
+            output = tf.nn.sigmoid(output)
+
+        return output
+
+def squash(vector):
+    epsilon = 1e-9
+    vec_squared_norm = tf.reduce_sum(tf.square(vector), -1, keep_dims=True)
+    scalar_factor = vec_squared_norm / (1 + vec_squared_norm) / tf.sqrt(vec_squared_norm + epsilon)
+    vec_squashed = scalar_factor * vector  # element-wise
+    return(vec_squashed)
+
+
+def dynamic_routing(output_heads, params):   #[batch, length, heads * channels]
+    with tf.variable_scope("dynamic_routing"):
+        num_capsules = 512
+        heads = 8
+        channels = 64
+        output_heads = tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, channels])
+        # [batch, length, heads, channels]
+        combined_output = _ffn_layer_2(
+            _layer_process(tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], channels * heads])
+            , params.layer_preprocess),
+            params.filter_size,    #2048, how to set it?
+            heads*channels*heads,  #512*8=4096
+            1.0 - params.relu_dropout,
+        )
+        combined_output = tf.reshape(combined_output, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], num_capsules, 8, 1])
+
+        b = tf.zeros([tf.shape(output_heads)[0], tf.shape(output_heads)[1], num_capsules, 8])
+        routing_iter = 3
+        for i in range(routing_iter):
+            c = tf.reshape(tf.nn.softmax(b), [tf.shape(b)[0], tf.shape(b)[1], num_capsules, 8, 1])
+            s = tf.reduce_sum(c * combined_output, axis = 3)
+            v = squash(s)# [batch, length, num_capsules, 1]
+            temp_v = tf.reshape(v, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], num_capsules, 1, 1])
+            temp_v2 = tf.reduce_sum(temp_v * combined_output, axis = 4) # [batch, length, num_capsules, 8]
+            b += temp_v2
+
+        v = tf.reshape(v, [tf.shape(b)[0], tf.shape(b)[1], num_capsules])
+        outputs = _layer_process(v, params.layer_postprocess) # if necessary?
+        
+        return outputs
+
+
+def em_routing(output_heads, params):   #[batch, length, heads * channels]
+    with tf.variable_scope("em_routing"):
+        num_capsules = 512
+        heads = 8
+        channels = 64
+        output_heads = tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, channels])
+        # [batch, length, heads, channels]
+        activation_in = _ffn_layer_sigmoid(
+            _layer_process(tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], channels * heads])
+            , params.layer_preprocess),
+            heads*channels,   #how to set this?
+            8,
+            1.0 - params.relu_dropout,
+        )
+        activation_in = tf.reshape(activation_in, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], 8, 1])
+
+        vote_in = _ffn_layer(
+            _layer_process(tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], channels * heads])
+            , params.layer_preprocess),
+            heads * channels,  # how to set?
+            heads * channels * heads, #512*8=4096
+            1.0 - params.relu_dropout,
+        )
+        vote_in = tf.reshape(vote_in, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], 8, num_capsules, 1])
+
+        r = tf.ones([tf.shape(output_heads)[0], tf.shape(output_heads)[1], 8, num_capsules]) / num_capsules
+
+        initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
+        beta_v = tf.get_variable(
+                  name='beta_v', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32, 
+                  initializer=initializer
+                )
+        beta_a = tf.get_variable(
+                  name='beta_a', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32,
+                  initializer=initializer
+                )
+        
+        routing_iter = 3
+        epsilon = 1e-9
+        it_min = 1.0
+        it_max = min(routing_iter, 3.0)
+
+        for i in range(routing_iter):
+            #M step
+            inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
+
+            r = r * (activation_in + epsilon) #[batch, length, 8, 512]
+            r = tf.reshape(r, [tf.shape(r)[0], tf.shape(r)[1], 8, num_capsules, 1]) #[?,?,8,512,1]
+            r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, 512, 1]
+            # r_sum = tf.reshape(r_sum, [tf.shape(r)[0], tf.shape(r)[1], 1, num_capsules, 1]) #[?, ?, 1, 512, 1]
+
+            o_mean = tf.reduce_sum(r * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, 512, 1]
+            o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, 512, 1]
+
+            o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, 512, 1]
+            o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, 512, 1]
+                
+            #unnecessary
+            o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+            o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+            o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+
+            activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+
+            if i < routing_iter - 1:
+                #E step
+                o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 8, num, 1]
+                o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
+                o_p = o_p_unit0 + o_p_unit2 #[?, ?, 8, num, 1]
+                zz = tf.log(activation_out + epsilon) + o_p #[?,?,8,num,1]
+                r = tf.nn.softmax(zz, dim = 3) + epsilon#[?,?,8,num,1] 
+                r = tf.reshape(r, [tf.shape(r)[0], tf.shape(r)[1], 8, num_capsules]) #[?,?,8,num]
+
+        v = tf.reshape(activation_out*o_mean, [tf.shape(r)[0], tf.shape(r)[1], params.hidden_size]) #[batch, length, 512]
+        outputs = _layer_process(v, params.layer_postprocess) # if necessary?
+        
+        return outputs
+
 
 def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="encoder", dtype=dtype,
@@ -80,7 +230,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     )
 
                     diffheads_self[layer_name] = y["diffheads"]
-                    y = y["outputs"]
+                    y = dynamic_routing(y["outputs"])
                     now_y = y
                     if last_y is not None:
                         y = _residual_fn(y, last_y, 1.0 - params.residual_dropout)

@@ -544,16 +544,16 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
 
         # combine heads
         weights = results["weights"]
-        x0 = combine_heads(results["outputs"])
+        x = combine_heads(results["outputs"])
 
         # new combine heads
         # new_queries = linear(queries, key_size, True, True, scope="new_q_transform")
         # new_queries *= key_depth_per_head ** -0.5
-        x = high_combine_heads(results["outputs"])
+        # x = high_combine_heads(results["outputs"])
         # x = cnn_combine_heads(results["outputs"])
         
-        if myBias is None:
-            x = x0 # default use both enc and dec
+        # if myBias is None:
+        #     x = x0 # default use both enc and dec
             
         diff_output = diff_outputs(results["outputs"]) #shape [batch, q_length]
         diff_position = diff_positions(weights)
@@ -568,6 +568,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         else:
             diffheads = diff_position
 
+        output = False  # aggregate outside
         if output:
             outputs = linear(x, output_size, True, True,
                              scope="new_output_transform")
