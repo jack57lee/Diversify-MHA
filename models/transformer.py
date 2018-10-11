@@ -104,7 +104,7 @@ def dynamic_routing(output_heads, params):   #[batch, length, heads * channels]
         combined_output = _ffn_layer_2(
             _layer_process(tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], channels * heads])
             , params.layer_preprocess),
-            params.filter_size,    #2048, how to set it?
+            heads*channels,    #2048, how to set it?
             heads*channels*heads,  #512*8=4096
             1.0 - params.relu_dropout,
         )
