@@ -149,7 +149,7 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
             heads * channels * heads, #512*8=4096
             1.0 - params.relu_dropout,
         )
-        vote_in = tf.reshape(vote_in, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], 8, num_capsules, 1])
+        vote_in = tf.reshape(vote_in, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], 8, num_capsules, int(params.hidden_size/num_capsules)])
 
         r = tf.ones([tf.shape(output_heads)[0], tf.shape(output_heads)[1], 8, num_capsules]) / num_capsules
 
@@ -191,7 +191,7 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
             activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
 
             if i < routing_iter - 1:
-                #E step
+                #E step, o_p is log(p_ij)
                 o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 8, num, 1]
                 o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
                 o_p = o_p_unit0 + o_p_unit2 #[?, ?, 8, num, 1]
@@ -230,7 +230,8 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     )
 
                     diffheads_self[layer_name] = y["diffheads"]
-                    y = dynamic_routing(y["outputs"], params)
+                    y = em_routing(y["outputs"], params)
+                    #y = layers.nn.linear(y["outputs"], 512, True, True, scope="out_transform")
                     now_y = y
                     if last_y is not None:
                         y = _residual_fn(y, last_y, 1.0 - params.residual_dropout)
@@ -291,8 +292,8 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                         next_state[layer_name] = y["state"]
 
                     diffheads_self[layer_name] = y["diffheads"]
-                    y = y["outputs"]
-                    y = layers.nn.linear(y, 512, True, True, scope="out_transform")
+                    #y = y["outputs"]
+                    y = layers.nn.linear(y["outputs"], 512, True, True, scope="out_transform")
                     now_y = y
                     if last_y_dec is not None:
                         y = _residual_fn(y, last_y_dec, 1.0 - params.residual_dropout)
@@ -317,8 +318,8 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     )
 
                     diffheads_ecdc[layer_name] = y["diffheads"]
-                    y = y["outputs"]
-                    y = layers.nn.linear(y, 512, True, True, scope="out_transform")
+                    #y = y["outputs"]
+                    y = layers.nn.linear(y["outputs"], 512, True, True, scope="out_transform")
                     now_y = y
                     if last_y_ecdc is not None:
                         y = _residual_fn(y, last_y_ecdc, 1.0 - params.residual_dropout)

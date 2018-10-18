@@ -111,6 +111,19 @@ def cnn_combine_heads(inputs, scope=None):
         return outputs
 
 
+def local_cnn_head(queries, kernel_size, scope=None):
+    # heads with different CNN kernel and CNN center
+    # input: the origin query, [batch, length, hidden_size(512)]
+
+    with tf.variable_scope(scope, default_name="local_cnn_head", values=[queries]):
+        filters = 64
+        q = linear(queries, 64, True, True, scope="q_transform") #[batch, length, 64], 3D tensor for CNN
+        conv = tf.layers.conv1d(inputs=q, filters=filters, kernel_size=kernel_size, padding="same", activation=tf.nn.relu)
+        # [batch, length, filters]
+
+        return conv
+
+
 def high_combine_heads(inputs, scope=None):
     """ Combine heads in high order (low rank bilinear)
     :param inputs: A tensor with shape [batch, heads, length, channels]
@@ -130,6 +143,11 @@ def high_combine_heads(inputs, scope=None):
         c = tf.reshape(x, tf.concat([tf.shape(x)[:-2], [-1]], 0))
         c.set_shape(new_shape) #[batch, length, heads * channels]
 
+        # d = linear(x, 32, False, True, scope="x_transform") #[batch, q_length, heads, 32]
+        # d = tf.tanh(d)
+        # outputs = tf.reduce_prod(d, axis=[-2]) #[batch, q_length, 32]
+        # outputs = tf.concat([outputs, c], -1)
+
         c1 = linear(c, 512, True, True, scope="c1_transform") #[batch, q_length, 32]
         c2 = linear(c, 512, True, True, scope="c2_transform") #[batch, q_length, 32]
         # c1 = tf.tanh(c1)
@@ -139,6 +157,45 @@ def high_combine_heads(inputs, scope=None):
 
         return outputs
 
+'''
+def new_combine_heads_3(inputs, queries, scope=None):
+    """ Combine heads in weighted branchs, and channel-wise gate
+    :param inputs: A tensor with shape [batch, heads, length, channels]
+    :param queries: A tensor with shape [batch, length_q, key_size], already linear and scale
+    :returns: A tensor with shape [batch, length, heads * channels]
+    channels=64, key_size=512 for base model
+    """
+
+    with tf.variable_scope(scope, default_name="new_combine_heads_3", values=[inputs,queries]):
+        x = inputs
+        heads = x.shape[1].value # 8
+        channels = x.shape[3].value # 64
+        x = tf.transpose(x, [0, 2, 1, 3]) #shape [batch, q_length, heads, channels]
+        old_shape = x.get_shape().dims
+        a, b = old_shape[-2:]
+        new_shape = old_shape[:-2] + [a * b if a and b else None]
+        d = linear(x, heads*channels, True, True, scope="x_transform") #[batch, q_length, heads, h*channels]
+
+        # head_weight = tf.get_variable("head_weight", [8], dtype=tf.float32, 
+        #                             initializer=tf.random_normal_initializer(0.0, params.hidden_size ** -0.5))
+        # head_weight = tf.nn.softmax(head_weight, name="head_weight")
+        # head_weight = tf.expand_dims(tf.expand_dims(head_weight, 0), 0) #shape [1,1,8]
+        # x_sum = tf.reduce_sum(x, axis=[-1]) #shape [batch, q_length, heads]
+        # ones = tf.ones_like(x_sum, dtype=tf.float32)
+        # weights = ones * head_weight #shape [batch, q_length, heads]
+        # weights = tf.expand_dims(weights, 2) #[batch, q_length, 1, heads]
+        # outputs = tf.matmul(weights, d) #[batch, q_length, 1, channels*heads]
+        
+        queries = tf.expand_dims(queries, 2)  #[batch, q_length, 1, key_size]
+        queries = tf.tile(queries,[1,1,heads,1]) #[batch, q_length, heads, key_size]
+        concat = tf.concat([queries, d], -1) #[batch, q_length, heads, key_size*2]
+        gates = linear(concat, heads*channels, True, True, scope="gate_transform") #[batch,q_len,heads,k_s]
+        outputs = d * tf.nn.softmax(gates, axis=-2)
+        
+        outputs = tf.reduce_sum(outputs, axis=[-2]) #[batch, q_length, channels*heads]
+
+        return outputs
+'''
 
 def diff_outputs(inputs, name=None):
     """ Calculate the differences of all heads outputs
@@ -502,6 +559,10 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         weights = results["weights"]
         x = combine_heads(results["outputs"])
 
+        #cnn_head3 = local_cnn_head(queries, 3, scope="local_cnn_head3")
+        #cnn_head5 = local_cnn_head(queries, 5, scope="local_cnn_head5")
+        #x = tf.concat([x, cnn_head3, cnn_head5], -1)
+
         # new combine heads
         # new_queries = linear(queries, key_size, True, True, scope="new_q_transform")
         # new_queries *= key_depth_per_head ** -0.5
@@ -513,7 +574,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
             
         diff_output = diff_outputs(results["outputs"]) #shape [batch, q_length]
         diff_position = diff_positions(weights)
-        # head_classification = heads_classification(results["outputs"], myMatrix, myBias) #shape []
+        # head_classification = heads_classification(results["outputs"], myMatrix, myBias)
 
         if params.disagreement == "outputs":
             diffheads = diff_output
