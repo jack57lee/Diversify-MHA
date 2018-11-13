@@ -26,17 +26,6 @@ def _residual_fn(x, y, keep_prob=None):
         y = tf.nn.dropout(y, keep_prob)
     return x + y
 
-def bilinear_residual(x, y, embed_dim, keep_prob=None):
-    if keep_prob and keep_prob < 1.0:
-        y = tf.nn.dropout(y, keep_prob)
-    
-    out_dim = x.shape[-1].value
-    x1 = layers.nn.linear(x, embed_dim, True, True, scope="x_transform")
-    y1 = layers.nn.linear(y, embed_dim, True, True, scope="y_transform")
-    z = x1 * y1
-    z1 = layers.nn.linear(z, out_dim, True, True, scope="z_transform")
-    return z1
-
 
 def _ffn_layer(inputs, hidden_size, output_size, keep_prob=None,
               dtype=None, scope=None):
@@ -86,13 +75,13 @@ def _ffn_layer_sigmoid(inputs, hidden_size, output_size, keep_prob=None,
 
         return output
 
+
 def squash(vector):
     epsilon = 1e-9
     vec_squared_norm = tf.reduce_sum(tf.square(vector), -1, keep_dims=True)
     scalar_factor = vec_squared_norm / (1 + vec_squared_norm) / tf.sqrt(vec_squared_norm + epsilon)
     vec_squashed = scalar_factor * vector  # element-wise
     return(vec_squashed)
-
 
 def dynamic_routing(output_heads, params):   #[batch, length, heads * channels]
     with tf.variable_scope("dynamic_routing"):
@@ -125,7 +114,6 @@ def dynamic_routing(output_heads, params):   #[batch, length, heads * channels]
         
         return outputs
 
-
 def em_routing(output_heads, params):   #[batch, length, heads * channels]
     with tf.variable_scope("em_routing"):
         num_capsules = 512
@@ -133,14 +121,15 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         channels = 64
         output_heads = tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, channels])
         # [batch, length, heads, channels]
-        activation_in = _ffn_layer_sigmoid(
-            _layer_process(tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], channels * heads])
-            , params.layer_preprocess),
-            heads*channels,   #how to set this?
-            8,
-            1.0 - params.relu_dropout,
-        )
-        activation_in = tf.reshape(activation_in, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], 8, 1])
+        
+        # activation_in = _ffn_layer_sigmoid(
+        #     _layer_process(tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], channels * heads])
+        #     , params.layer_preprocess),
+        #     heads*channels,   #how to set this?
+        #     8,
+        #     1.0 - params.relu_dropout,
+        # )
+        # activation_in = tf.reshape(activation_in, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], 8, 1])
 
         vote_in = _ffn_layer(
             _layer_process(tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], channels * heads])
@@ -172,7 +161,7 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
             #M step
             inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
 
-            r = r * (activation_in + epsilon) #[batch, length, 8, 512]
+            # r = r * (activation_in + epsilon) #[batch, length, 8, 512]
             r = tf.reshape(r, [tf.shape(r)[0], tf.shape(r)[1], 8, num_capsules, 1]) #[?,?,8,512,1]
             r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, 512, 1]
             # r_sum = tf.reshape(r_sum, [tf.shape(r)[0], tf.shape(r)[1], 1, num_capsules, 1]) #[?, ?, 1, 512, 1]
@@ -184,22 +173,23 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
             o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, 512, 1]
                 
             #unnecessary
-            o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
-            o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
-            o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+            # o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+            # o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+            # o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
-            activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+            # activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
 
             if i < routing_iter - 1:
                 #E step
                 o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 8, num, 1]
                 o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
                 o_p = o_p_unit0 + o_p_unit2 #[?, ?, 8, num, 1]
-                zz = tf.log(activation_out + epsilon) + o_p #[?,?,8,num,1]
+                # zz = tf.log(activation_out + epsilon) + o_p #[?,?,8,num,1]
+                zz = o_p
                 r = tf.nn.softmax(zz, dim = 3) + epsilon#[?,?,8,num,1] 
                 r = tf.reshape(r, [tf.shape(r)[0], tf.shape(r)[1], 8, num_capsules]) #[?,?,8,num]
 
-        v = tf.reshape(activation_out*o_mean, [tf.shape(r)[0], tf.shape(r)[1], params.hidden_size]) #[batch, length, 512]
+        v = tf.reshape(o_mean, [tf.shape(r)[0], tf.shape(r)[1], params.hidden_size]) #[batch, length, 512]
         outputs = _layer_process(v, params.layer_postprocess) # if necessary?
         
         return outputs
@@ -210,7 +200,6 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                            values=[inputs, bias]):
         x = inputs
         diffheads_self = {}
-        last_y = None
 
         for layer in range(params.num_encoder_layers):
             layer_name = "layer_%d" % layer
@@ -230,15 +219,10 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     )
 
                     diffheads_self[layer_name] = y["diffheads"]
-                    y = dynamic_routing(y["outputs"], params)
-                    now_y = y
-                    if last_y is not None:
-                        y = _residual_fn(y, last_y, 1.0 - params.residual_dropout)
-                        y = _layer_process(y, params.layer_postprocess)
-                        now_y = y #+ last_y #residual or densenet
+                    y = y["outputs"]
+                    y = em_routing(y, params)
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
-                    # last_y = now_y
 
                 with tf.variable_scope("feed_forward"):
                     y = _ffn_layer(
@@ -264,8 +248,6 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
         next_state = {}
         diffheads_self = {}
         diffheads_ecdc = {}
-        last_y_dec = None
-        last_y_ecdc = None
 
         for layer in range(params.num_decoder_layers):
             layer_name = "layer_%d" % layer
@@ -293,14 +275,8 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     diffheads_self[layer_name] = y["diffheads"]
                     y = y["outputs"]
                     y = layers.nn.linear(y, 512, True, True, scope="out_transform")
-                    now_y = y
-                    if last_y_dec is not None:
-                        y = _residual_fn(y, last_y_dec, 1.0 - params.residual_dropout)
-                        y = _layer_process(y, params.layer_postprocess)
-                        now_y = y #+ last_y_dec
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
-                    # last_y_dec = now_y
 
                 with tf.variable_scope("encdec_attention"):
                     y = layers.attention.multihead_attention(
@@ -319,14 +295,8 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     diffheads_ecdc[layer_name] = y["diffheads"]
                     y = y["outputs"]
                     y = layers.nn.linear(y, 512, True, True, scope="out_transform")
-                    now_y = y
-                    if last_y_ecdc is not None:
-                        y = _residual_fn(y, last_y_ecdc, 1.0 - params.residual_dropout)
-                        y = _layer_process(y, params.layer_postprocess)
-                        now_y = y #+ last_y_ecdc
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
-                    # last_y_ecdc = now_y
 
                 with tf.variable_scope("feed_forward"):
                     y = _ffn_layer(
