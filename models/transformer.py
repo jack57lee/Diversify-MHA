@@ -121,16 +121,18 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         channels = 64
         output_heads = tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, channels])
         # [batch, length, heads, channels]
-        
-        # activation_in = _ffn_layer_sigmoid(
-        #     _layer_process(tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], channels * heads])
-        #     , params.layer_preprocess),
-        #     heads*channels,   #how to set this?
-        #     8,
-        #     1.0 - params.relu_dropout,
-        # )
-        # activation_in = tf.reshape(activation_in, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], 8, 1])
 
+        v0 = layers.nn.linear(output_heads[:,:,0,:], num_capsules, True, True, scope="v0_transform") #[batch,len,numcaps]
+        v1 = layers.nn.linear(output_heads[:,:,1,:], num_capsules, True, True, scope="v1_transform")
+        v2 = layers.nn.linear(output_heads[:,:,2,:], num_capsules, True, True, scope="v2_transform")
+        v3 = layers.nn.linear(output_heads[:,:,3,:], num_capsules, True, True, scope="v3_transform")
+        v4 = layers.nn.linear(output_heads[:,:,4,:], num_capsules, True, True, scope="v4_transform")
+        v5 = layers.nn.linear(output_heads[:,:,5,:], num_capsules, True, True, scope="v5_transform")
+        v6 = layers.nn.linear(output_heads[:,:,6,:], num_capsules, True, True, scope="v6_transform")
+        v7 = layers.nn.linear(output_heads[:,:,7,:], num_capsules, True, True, scope="v7_transform")
+        vore_in = tf.stack([v0,v1,v2,v3,v4,v5,v6,v7], axis=2)
+        # [batch, length, heads, numcaps]
+        
         vote_in = _ffn_layer(
             _layer_process(tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], channels * heads])
             , params.layer_preprocess),
@@ -161,7 +163,6 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
             #M step
             inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
 
-            # r = r * (activation_in + epsilon) #[batch, length, 8, 512]
             r = tf.reshape(r, [tf.shape(r)[0], tf.shape(r)[1], 8, num_capsules, 1]) #[?,?,8,512,1]
             r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, 512, 1]
             # r_sum = tf.reshape(r_sum, [tf.shape(r)[0], tf.shape(r)[1], 1, num_capsules, 1]) #[?, ?, 1, 512, 1]
@@ -171,14 +172,8 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
 
             o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, 512, 1]
             o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, 512, 1]
-                
-            #unnecessary
-            # o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
-            # o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
-            # o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
             # activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
-
             if i < routing_iter - 1:
                 #E step
                 o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 8, num, 1]
