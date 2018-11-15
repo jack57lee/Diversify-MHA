@@ -58,13 +58,13 @@ def _ffn_layer_2(inputs, hidden_size, output_size, keep_prob=None,
 
         return output
 
-def _ffn_layer_sigmoid(inputs, hidden_size, output_size, keep_prob=None,
+def _ffn_layer_tanh(inputs, hidden_size, output_size, keep_prob=None,
               dtype=None, scope=None):
-    with tf.variable_scope(scope, default_name="ffn_layer_2", values=[inputs],
+    with tf.variable_scope(scope, default_name="ffn_layer_tanh", values=[inputs],
                            dtype=dtype):
         with tf.variable_scope("input_layer"):
             hidden = layers.nn.linear(inputs, hidden_size, True, True)
-            hidden = tf.nn.sigmoid(hidden)
+            hidden = tf.nn.tanh(hidden)
 
         if keep_prob and keep_prob < 1.0:
             hidden = tf.nn.dropout(hidden, keep_prob)
@@ -189,8 +189,8 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         
         return outputs
 
-def dynamic_weight(output_heads, params):   #[batch, length, heads * channels]
-    with tf.variable_scope("dy_weight"):
+def dy_weights(output_heads, params):   #[batch, length, heads * channels]
+    with tf.variable_scope("dy_weights"):
         out_dim = 512
         heads = 8
         channels = 64
@@ -208,14 +208,14 @@ def dynamic_weight(output_heads, params):   #[batch, length, heads * channels]
         vote_in = tf.stack([v0,v1,v2,v3,v4,v5,v6,v7], axis=2)
         # [batch, length, heads, dim]
         
-        vote_in = _ffn_layer_2(
+        vote_in1 = _ffn_layer_2(
             _layer_process(tf.reshape(vote_in, [tf.shape(vote_in)[0], tf.shape(vote_in)[1], heads*out_dim])
             , params.layer_preprocess),
-            heads * out_dim,  # 512*8
+            heads * channels,  # 512*8?
             heads * out_dim, #512*8=4096
             1.0 - params.relu_dropout,
         )
-        weights = tf.reshape(vote_in, [tf.shape(vote_in)[0], tf.shape(vote_in)[1], heads, out_dim])
+        weights = tf.reshape(vote_in1, [tf.shape(vote_in)[0], tf.shape(vote_in)[1], heads, out_dim])
         # [batch, length, heads, dim]
 
         outputs = tf.reduce_sum(vote_in * weights, axis=2) # [batch, len, dim]
@@ -226,8 +226,14 @@ def dynamic_weight(output_heads, params):   #[batch, length, heads * channels]
 def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="encoder", dtype=dtype,
                            values=[inputs, bias]):
-        x = inputs
+        x = inputs # [batch, len, dim]
         diffheads_self = {}
+
+        mask = _ffn_layer_tanh(_layer_process(x, params.layer_preprocess), params.hidden_size, 1)
+        # [batch, len, 1]
+        mask = tf.maximum(mask-0.499, 0) * 10000
+        mask = tf.minimum(mask, 1)
+        # rounding to [0,1]
 
         for layer in range(params.num_encoder_layers):
             layer_name = "layer_%d" % layer
@@ -248,7 +254,10 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
 
                     diffheads_self[layer_name] = y["diffheads"]
                     y = y["outputs"]
-                    y = em_routing(y, params)
+                    y1 = em_routing(y, params)
+                    y2 = layers.nn.linear(y, 512, True, True, scope="out_transform")
+                    y = mask*y1 + (1-mask)*y2
+                    #### dynamically choose whether routing
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
 
