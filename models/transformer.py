@@ -97,12 +97,12 @@ def dynamic_routing(output_heads, params):   #[batch, length, heads * channels]
             heads*channels*heads,  #512*8=4096
             1.0 - params.relu_dropout,
         )
-        combined_output = tf.reshape(combined_output, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], num_capsules, 8, 1])
+        combined_output = tf.reshape(combined_output, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], num_capsules, heads, 1])
 
-        b = tf.zeros([tf.shape(output_heads)[0], tf.shape(output_heads)[1], num_capsules, 8])
+        b = tf.zeros([tf.shape(output_heads)[0], tf.shape(output_heads)[1], num_capsules, heads])
         routing_iter = 3
         for i in range(routing_iter):
-            c = tf.reshape(tf.nn.softmax(b), [tf.shape(b)[0], tf.shape(b)[1], num_capsules, 8, 1])
+            c = tf.reshape(tf.nn.softmax(b), [tf.shape(b)[0], tf.shape(b)[1], num_capsules, heads, 1])
             s = tf.reduce_sum(c * combined_output, axis = 3)
             v = squash(s)# [batch, length, num_capsules, 1]
             temp_v = tf.reshape(v, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], num_capsules, 1, 1])
@@ -130,7 +130,7 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         v5 = layers.nn.linear(output_heads[:,:,5,:], num_capsules, True, True, scope="v5_transform")
         v6 = layers.nn.linear(output_heads[:,:,6,:], num_capsules, True, True, scope="v6_transform")
         v7 = layers.nn.linear(output_heads[:,:,7,:], num_capsules, True, True, scope="v7_transform")
-        vore_in = tf.stack([v0,v1,v2,v3,v4,v5,v6,v7], axis=2)
+        vote_in = tf.stack([v0,v1,v2,v3,v4,v5,v6,v7], axis=2)
         # [batch, length, heads, numcaps]
         
         vote_in = _ffn_layer(
@@ -140,9 +140,9 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
             heads * channels * heads, #512*8=4096
             1.0 - params.relu_dropout,
         )
-        vote_in = tf.reshape(vote_in, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], 8, num_capsules, 1])
+        vote_in = tf.reshape(vote_in, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, num_capsules, 1])
 
-        r = tf.ones([tf.shape(output_heads)[0], tf.shape(output_heads)[1], 8, num_capsules]) / num_capsules
+        r = tf.ones([tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, num_capsules]) / num_capsules
 
         initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
         beta_v = tf.get_variable(
@@ -163,7 +163,7 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
             #M step
             inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
 
-            r = tf.reshape(r, [tf.shape(r)[0], tf.shape(r)[1], 8, num_capsules, 1]) #[?,?,8,512,1]
+            r = tf.reshape(r, [tf.shape(r)[0], tf.shape(r)[1], heads, num_capsules, 1]) #[?,?,8,512,1]
             r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, 512, 1]
             # r_sum = tf.reshape(r_sum, [tf.shape(r)[0], tf.shape(r)[1], 1, num_capsules, 1]) #[?, ?, 1, 512, 1]
 
@@ -182,11 +182,44 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
                 # zz = tf.log(activation_out + epsilon) + o_p #[?,?,8,num,1]
                 zz = o_p
                 r = tf.nn.softmax(zz, dim = 3) + epsilon#[?,?,8,num,1] 
-                r = tf.reshape(r, [tf.shape(r)[0], tf.shape(r)[1], 8, num_capsules]) #[?,?,8,num]
+                r = tf.reshape(r, [tf.shape(r)[0], tf.shape(r)[1], heads, num_capsules]) #[?,?,8,num]
 
         v = tf.reshape(o_mean, [tf.shape(r)[0], tf.shape(r)[1], params.hidden_size]) #[batch, length, 512]
         outputs = _layer_process(v, params.layer_postprocess) # if necessary?
         
+        return outputs
+
+def dynamic_weight(output_heads, params):   #[batch, length, heads * channels]
+    with tf.variable_scope("dy_weight"):
+        out_dim = 512
+        heads = 8
+        channels = 64
+        output_heads = tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, channels])
+        # [batch, length, heads, channels]
+
+        v0 = layers.nn.linear(output_heads[:,:,0,:], out_dim, True, True, scope="v0_transform") #[batch,len,dim]
+        v1 = layers.nn.linear(output_heads[:,:,1,:], out_dim, True, True, scope="v1_transform")
+        v2 = layers.nn.linear(output_heads[:,:,2,:], out_dim, True, True, scope="v2_transform")
+        v3 = layers.nn.linear(output_heads[:,:,3,:], out_dim, True, True, scope="v3_transform")
+        v4 = layers.nn.linear(output_heads[:,:,4,:], out_dim, True, True, scope="v4_transform")
+        v5 = layers.nn.linear(output_heads[:,:,5,:], out_dim, True, True, scope="v5_transform")
+        v6 = layers.nn.linear(output_heads[:,:,6,:], out_dim, True, True, scope="v6_transform")
+        v7 = layers.nn.linear(output_heads[:,:,7,:], out_dim, True, True, scope="v7_transform")
+        vote_in = tf.stack([v0,v1,v2,v3,v4,v5,v6,v7], axis=2)
+        # [batch, length, heads, dim]
+        
+        vote_in = _ffn_layer_2(
+            _layer_process(tf.reshape(vote_in, [tf.shape(vote_in)[0], tf.shape(vote_in)[1], heads*out_dim])
+            , params.layer_preprocess),
+            heads * out_dim,  # 512*8
+            heads * out_dim, #512*8=4096
+            1.0 - params.relu_dropout,
+        )
+        weights = tf.reshape(vote_in, [tf.shape(vote_in)[0], tf.shape(vote_in)[1], heads, out_dim])
+        # [batch, length, heads, dim]
+
+        outputs = tf.reduce_sum(vote_in * weights, axis=2) # [batch, len, dim]
+
         return outputs
 
 
