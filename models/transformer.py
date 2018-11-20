@@ -10,6 +10,7 @@ import copy
 import tensorflow as tf
 import thumt.interface as interface
 import thumt.layers as layers
+from tensorflow.contrib.distributions.python.ops import relaxed_onehot_categorical
 
 
 def _layer_process(x, mode):
@@ -119,7 +120,7 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         num_capsules = 512
         heads = 8
         channels = 64
-        output_heads = tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, channels])
+        # output_heads = tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, channels])
         # [batch, length, heads, channels]
 
         v0 = layers.nn.linear(output_heads[:,:,0,:], num_capsules, True, True, scope="v0_transform") #[batch,len,numcaps]
@@ -134,7 +135,7 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         # [batch, length, heads, numcaps]
         
         vote_in = _ffn_layer(
-            _layer_process(tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], channels * heads])
+            _layer_process(output_heads
             , params.layer_preprocess),
             heads * channels,  # how to set?
             heads * channels * heads, #512*8=4096
@@ -229,11 +230,12 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
         x = inputs # [batch, len, dim]
         diffheads_self = {}
 
-        mask = _ffn_layer_tanh(_layer_process(x, params.layer_preprocess), params.hidden_size, 1)
-        # [batch, len, 1]
-        mask = tf.maximum(mask-0.499, 0) * 10000
-        mask = tf.minimum(mask, 1)
-        # rounding to [0,1]
+        mask0 = _ffn_layer_tanh(_layer_process(x, params.layer_preprocess), params.hidden_size, 1)
+        # [batch, len, 1], after sigmoid
+        mask1 = 1 - mask0
+        mask = tf.concat([mask0, mask1], axis=-1) #[batch, len, 2]
+        mask = relaxed_onehot_categorical.RelaxedOneHotCategorical(temperature=0.5, probs=mask).sample()
+        mask0 = mask[:,:,0]
 
         for layer in range(params.num_encoder_layers):
             layer_name = "layer_%d" % layer
@@ -256,7 +258,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     y = y["outputs"]
                     y1 = em_routing(y, params)
                     y2 = layers.nn.linear(y, 512, True, True, scope="out_transform")
-                    y = mask*y1 + (1-mask)*y2
+                    y = mask0*y1 + (1-mask0)*y2
                     #### dynamically choose whether routing
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
