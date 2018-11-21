@@ -72,7 +72,7 @@ def _ffn_layer_tanh(inputs, hidden_size, output_size, keep_prob=None,
 
         with tf.variable_scope("output_layer"):
             output = layers.nn.linear(hidden, output_size, True, True)
-            output = tf.nn.sigmoid(output)
+            output = tf.nn.softmax(output)
 
         return output
 
@@ -123,15 +123,15 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         # output_heads = tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, channels])
         # [batch, length, heads, channels]
 
-        v0 = layers.nn.linear(output_heads[:,:,0,:], num_capsules, True, True, scope="v0_transform") #[batch,len,numcaps]
-        v1 = layers.nn.linear(output_heads[:,:,1,:], num_capsules, True, True, scope="v1_transform")
-        v2 = layers.nn.linear(output_heads[:,:,2,:], num_capsules, True, True, scope="v2_transform")
-        v3 = layers.nn.linear(output_heads[:,:,3,:], num_capsules, True, True, scope="v3_transform")
-        v4 = layers.nn.linear(output_heads[:,:,4,:], num_capsules, True, True, scope="v4_transform")
-        v5 = layers.nn.linear(output_heads[:,:,5,:], num_capsules, True, True, scope="v5_transform")
-        v6 = layers.nn.linear(output_heads[:,:,6,:], num_capsules, True, True, scope="v6_transform")
-        v7 = layers.nn.linear(output_heads[:,:,7,:], num_capsules, True, True, scope="v7_transform")
-        vote_in = tf.stack([v0,v1,v2,v3,v4,v5,v6,v7], axis=2)
+        # v0 = layers.nn.linear(output_heads[:,:,0,:], num_capsules, True, True, scope="v0_transform") #[batch,len,numcaps]
+        # v1 = layers.nn.linear(output_heads[:,:,1,:], num_capsules, True, True, scope="v1_transform")
+        # v2 = layers.nn.linear(output_heads[:,:,2,:], num_capsules, True, True, scope="v2_transform")
+        # v3 = layers.nn.linear(output_heads[:,:,3,:], num_capsules, True, True, scope="v3_transform")
+        # v4 = layers.nn.linear(output_heads[:,:,4,:], num_capsules, True, True, scope="v4_transform")
+        # v5 = layers.nn.linear(output_heads[:,:,5,:], num_capsules, True, True, scope="v5_transform")
+        # v6 = layers.nn.linear(output_heads[:,:,6,:], num_capsules, True, True, scope="v6_transform")
+        # v7 = layers.nn.linear(output_heads[:,:,7,:], num_capsules, True, True, scope="v7_transform")
+        # vote_in = tf.stack([v0,v1,v2,v3,v4,v5,v6,v7], axis=2)
         # [batch, length, heads, numcaps]
         
         vote_in = _ffn_layer(
@@ -146,14 +146,14 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         r = tf.ones([tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, num_capsules]) / num_capsules
 
         initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
-        beta_v = tf.get_variable(
-                  name='beta_v', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32, 
-                  initializer=initializer
-                )
-        beta_a = tf.get_variable(
-                  name='beta_a', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32,
-                  initializer=initializer
-                )
+        # beta_v = tf.get_variable(
+        #           name='beta_v', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32, 
+        #           initializer=initializer
+        #         )
+        # beta_a = tf.get_variable(
+        #           name='beta_a', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32,
+        #           initializer=initializer
+        #         )
         
         routing_iter = 3
         epsilon = 1e-9
@@ -171,8 +171,8 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
             o_mean = tf.reduce_sum(r * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, 512, 1]
             o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, 512, 1]
 
-            o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, 512, 1]
-            o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, 512, 1]
+            # o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, 512, 1]
+            # o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, 512, 1]
 
             # activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
             if i < routing_iter - 1:
@@ -230,12 +230,10 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
         x = inputs # [batch, len, dim]
         diffheads_self = {}
 
-        mask0 = _ffn_layer_tanh(_layer_process(x, params.layer_preprocess), params.hidden_size, 1)
-        # [batch, len, 1], after sigmoid
-        mask1 = 1 - mask0
-        mask = tf.concat([mask0, mask1], axis=-1) #[batch, len, 2]
-        mask = relaxed_onehot_categorical.RelaxedOneHotCategorical(temperature=0.5, probs=mask).sample()
-        mask0 = mask[:,:,0]
+        mask = _ffn_layer_tanh(_layer_process(x, params.layer_preprocess), params.hidden_size, 2)
+        # [batch, len, 2], after softmax
+        mask = relaxed_onehot_categorical.RelaxedOneHotCategorical(temperature=0.1, probs=mask).sample()
+        mask0 = tf.expand_dims(mask[:,:,0], -1)
 
         for layer in range(params.num_encoder_layers):
             layer_name = "layer_%d" % layer
