@@ -224,21 +224,25 @@ def dy_weights(output_heads, params):   #[batch, length, heads * channels]
         return outputs
 
 
-def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
+def transformer_encoder(inputs, bias, mode, params, dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="encoder", dtype=dtype,
                            values=[inputs, bias]):
         x = inputs # [batch, len, dim]
         diffheads_self = {}
 
-        mask = _ffn_layer_tanh(_layer_process(x, params.layer_preprocess), params.hidden_size, 2)
-        # [batch, len, 2], after softmax
-        mask = relaxed_onehot_categorical.RelaxedOneHotCategorical(temperature=0.1, probs=mask).sample()
-        mask0 = tf.expand_dims(mask[:,:,0], -1)
-
         for layer in range(params.num_encoder_layers):
             layer_name = "layer_%d" % layer
             with tf.variable_scope("layer_%d" % layer):
                 with tf.variable_scope("self_attention"):
+                    mask = _ffn_layer_tanh(_layer_process(x, params.layer_preprocess), params.hidden_size, 2)
+                    # [batch, len, 2], after softmax
+                    if mode == "train":
+                        tau = 1 / (tf.nn.softplus(layers.nn.linear(x, 1, True, True, scope="tau_transform")) + 1)
+                        mask = relaxed_onehot_categorical.RelaxedOneHotCategorical(temperature=tau, probs=mask).sample()
+                    else:
+                        mask = tf.cast(tf.greater(mask, 0.5), mask.dtype)
+                    mask0 = tf.expand_dims(mask[:,:,0], -1)
+                    
                     y = layers.attention.multihead_attention(
                         _layer_process(x, params.layer_preprocess),
                         None,
@@ -403,7 +407,7 @@ def encoding_graph(features, mode, params):
         keep_prob = 1.0 - params.residual_dropout
         encoder_input = tf.nn.dropout(encoder_input, keep_prob)
 
-    encoder_output, sum_diffheads = transformer_encoder(encoder_input, enc_attn_bias, params)
+    encoder_output, sum_diffheads = transformer_encoder(encoder_input, enc_attn_bias, mode, params)
 
     # Uniform encoder loss, classification is also same
     loss_enc = tf.reduce_sum((sum_diffheads) * src_mask) / tf.reduce_sum(src_mask)
