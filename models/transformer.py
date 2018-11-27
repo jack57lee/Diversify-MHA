@@ -159,6 +159,7 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         epsilon = 1e-9
         it_min = 1.0
         it_max = min(routing_iter, 3.0)
+        o_mean = None
 
         for i in range(routing_iter):
             #M step
@@ -168,7 +169,12 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
             r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, 512, 1]
             # r_sum = tf.reshape(r_sum, [tf.shape(r)[0], tf.shape(r)[1], 1, num_capsules, 1]) #[?, ?, 1, 512, 1]
 
-            o_mean = tf.reduce_sum(r * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, 512, 1]
+            temp_mean = tf.reduce_sum(r * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, 512, 1]
+            if o_mean:
+                o_mean = _residual_fn(o_mean, temp_mean)
+            else:
+                o_mean = temp_mean
+
             o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, 512, 1]
 
             # o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, 512, 1]
@@ -190,39 +196,6 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         
         return outputs
 
-def dy_weights(output_heads, params):   #[batch, length, heads * channels]
-    with tf.variable_scope("dy_weights"):
-        out_dim = 512
-        heads = 8
-        channels = 64
-        output_heads = tf.reshape(output_heads, [tf.shape(output_heads)[0], tf.shape(output_heads)[1], heads, channels])
-        # [batch, length, heads, channels]
-
-        v0 = layers.nn.linear(output_heads[:,:,0,:], out_dim, True, True, scope="v0_transform") #[batch,len,dim]
-        v1 = layers.nn.linear(output_heads[:,:,1,:], out_dim, True, True, scope="v1_transform")
-        v2 = layers.nn.linear(output_heads[:,:,2,:], out_dim, True, True, scope="v2_transform")
-        v3 = layers.nn.linear(output_heads[:,:,3,:], out_dim, True, True, scope="v3_transform")
-        v4 = layers.nn.linear(output_heads[:,:,4,:], out_dim, True, True, scope="v4_transform")
-        v5 = layers.nn.linear(output_heads[:,:,5,:], out_dim, True, True, scope="v5_transform")
-        v6 = layers.nn.linear(output_heads[:,:,6,:], out_dim, True, True, scope="v6_transform")
-        v7 = layers.nn.linear(output_heads[:,:,7,:], out_dim, True, True, scope="v7_transform")
-        vote_in = tf.stack([v0,v1,v2,v3,v4,v5,v6,v7], axis=2)
-        # [batch, length, heads, dim]
-        
-        vote_in1 = _ffn_layer_2(
-            _layer_process(tf.reshape(vote_in, [tf.shape(vote_in)[0], tf.shape(vote_in)[1], heads*out_dim])
-            , params.layer_preprocess),
-            heads * channels,  # 512*8?
-            heads * out_dim, #512*8=4096
-            1.0 - params.relu_dropout,
-        )
-        weights = tf.reshape(vote_in1, [tf.shape(vote_in)[0], tf.shape(vote_in)[1], heads, out_dim])
-        # [batch, length, heads, dim]
-
-        outputs = tf.reduce_sum(vote_in * weights, axis=2) # [batch, len, dim]
-
-        return outputs
-
 
 def transformer_encoder(inputs, bias, mode, params, dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="encoder", dtype=dtype,
@@ -239,7 +212,10 @@ def transformer_encoder(inputs, bias, mode, params, dtype=None, scope=None):
                     if mode == "train":
                         tau = 1 / (tf.nn.softplus(layers.nn.linear(x, 1, True, True, scope="tau_transform")) + 1)
                         mask = relaxed_onehot_categorical.RelaxedOneHotCategorical(temperature=tau, probs=mask).sample()
+                        mask_hard = tf.cast(tf.one_hot(tf.argmax(mask,-1),2), mask.dtype)
+                        mask = tf.stop_gradient(mask_hard - mask) + mask
                     else:
+                        mask = tf.Print(mask, [mask])
                         mask = tf.cast(tf.greater(mask, 0.5), mask.dtype)
                     mask0 = tf.expand_dims(mask[:,:,0], -1)
                     
