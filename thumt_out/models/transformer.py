@@ -10,7 +10,6 @@ import copy
 import tensorflow as tf
 import thumt.interface as interface
 import thumt.layers as layers
-from tensorflow.contrib.distributions.python.ops import relaxed_onehot_categorical
 
 
 def _layer_process(x, mode):
@@ -193,17 +192,16 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         return outputs
 
 
-def transformer_encoder(inputs, bias, mode, params, dtype=None, scope=None):
+def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="encoder", dtype=dtype,
                            values=[inputs, bias]):
-        x = inputs # [batch, len, dim]
-        diffheads_self = {}
-
+        x = inputs
+		# for visualization (Baoosong)
+        enc_atts=[]		
         for layer in range(params.num_encoder_layers):
-            layer_name = "layer_%d" % layer
             with tf.variable_scope("layer_%d" % layer):
                 with tf.variable_scope("self_attention"):
-                    mask = _ffn_layer_tanh(_layer_process(x, params.layer_preprocess), params.hidden_size, 2)
+                	mask = _ffn_layer_tanh(_layer_process(x, params.layer_preprocess), params.hidden_size, 2)
                     # [batch, len, 2], after softmax
                     if mode == "train":
                         tau = 1 / (tf.nn.softplus(layers.nn.linear(x, 1, True, True, scope="tau_transform")) + 1)
@@ -214,7 +212,7 @@ def transformer_encoder(inputs, bias, mode, params, dtype=None, scope=None):
                         mask = tf.Print(mask, [layer, mask[:,0:10,0]], summarize=20)
                         mask = tf.cast(tf.greater(mask, 0.5), mask.dtype)
                     mask0 = tf.expand_dims(mask[:,:,0], -1)
-                    
+
                     y = layers.attention.multihead_attention(
                         _layer_process(x, params.layer_preprocess),
                         None,
@@ -223,12 +221,13 @@ def transformer_encoder(inputs, bias, mode, params, dtype=None, scope=None):
                         params.attention_key_channels or params.hidden_size,
                         params.attention_value_channels or params.hidden_size,
                         params.hidden_size,
-                        params,
-                        1.0 - params.attention_dropout,
-                        myBias=1,
+                        1.0 - params.attention_dropout
                     )
-
-                    diffheads_self[layer_name] = mask[:,:,0]
+                    #for visulization (Baosong)
+                    if params.outweights:
+                    	mask_out = tf.expand_dims(mask0, 1)
+                    	mask_out = tf.tile(mask_out, [1,8,1,1])
+						enc_atts.append(mask_out)					
                     y = y["outputs"]
                     y1 = em_routing(y, params)
                     y2 = layers.nn.linear(y, 512, True, True, scope="out_transform")
@@ -248,20 +247,19 @@ def transformer_encoder(inputs, bias, mode, params, dtype=None, scope=None):
                     x = _layer_process(x, params.layer_postprocess)
 
         outputs = _layer_process(x, params.layer_preprocess)
-        sum_diffheads_self = tf.reduce_mean(list(diffheads_self.values()), 0) # shape [batch, len_q]
-
-        return outputs, sum_diffheads_self
-
+		
+        if params.outweights: return outputs, tf.transpose(tf.stack(enc_atts),[1,0,2,3,4])
+        else: return outputs	
 
 def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                         dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="decoder", dtype=dtype,
                            values=[inputs, memory, bias, mem_bias]):
         x = inputs
+		# for visualization (Baoosong)
+		dec_atts=[]
+		encdec_atts=[]		
         next_state = {}
-        diffheads_self = {}
-        diffheads_ecdc = {}
-
         for layer in range(params.num_decoder_layers):
             layer_name = "layer_%d" % layer
             with tf.variable_scope(layer_name):
@@ -276,16 +274,15 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                         params.attention_key_channels or params.hidden_size,
                         params.attention_value_channels or params.hidden_size,
                         params.hidden_size,
-                        params,
                         1.0 - params.attention_dropout,
-                        myBias=1,
                         state=layer_state
                     )
-
+                    # for visualization (Baoosong)					
+                    if params.outweights:
+                        dec_atts.append(y["weights"])
                     if layer_state is not None:
                         next_state[layer_name] = y["state"]
 
-                    diffheads_self[layer_name] = y["diffheads"]
                     y = y["outputs"]
                     y = layers.nn.linear(y, 512, True, True, scope="out_transform")
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
@@ -300,12 +297,11 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                         params.attention_key_channels or params.hidden_size,
                         params.attention_value_channels or params.hidden_size,
                         params.hidden_size,
-                        params,
                         1.0 - params.attention_dropout,
-                        myBias=1,
                     )
-
-                    diffheads_ecdc[layer_name] = y["diffheads"]
+					# for visualization (Baoosong)					
+                    if params.outweights:
+                        encdec_atts.append(y["weights"])						
                     y = y["outputs"]
                     y = layers.nn.linear(y, 512, True, True, scope="out_transform")
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
@@ -322,19 +318,13 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     x = _layer_process(x, params.layer_postprocess)
 
         outputs = _layer_process(x, params.layer_preprocess)
-        sum_diffheads_self = tf.reduce_mean(list(diffheads_self.values()), 0)
-        sum_diffheads_ecdc = tf.reduce_mean(list(diffheads_ecdc.values()), 0)
-
-        if params.disagreement == "subspaces":
-            sum_diffheads = sum_diffheads_self#, sum_diffheads_ecdc  #different length in source and target (values)
-        else:
-            sum_diffheads = tf.reduce_mean([sum_diffheads_self, sum_diffheads_ecdc], 0) # shape [batch, len_q]
 
         if state is not None:
-            return outputs, sum_diffheads, next_state
-
-        return outputs, sum_diffheads
-
+			# for visualization (Baoosong)		
+            if params.outweights: return outputs, next_state, tf.transpose(tf.stack(dec_atts),[1,0,2,3,4]),tf.transpose(tf.stack(encdec_atts),[1,0,2,3,4])
+            else: return outputs, next_state	
+        elif params.outweights: return outputs,tf.transpose(tf.stack(dec_atts),[1,0,2,3,4]),tf.transpose(tf.stack(encdec_atts),[1,0,2,3,4])
+        else: return outputs
 
 def encoding_graph(features, mode, params):
     if mode != "train":
@@ -379,12 +369,14 @@ def encoding_graph(features, mode, params):
         keep_prob = 1.0 - params.residual_dropout
         encoder_input = tf.nn.dropout(encoder_input, keep_prob)
 
-    encoder_output, sum_diffheads = transformer_encoder(encoder_input, enc_attn_bias, mode, params)
-
-    # Uniform encoder loss, classification is also same
-    loss_enc = tf.reduce_sum((sum_diffheads) * src_mask) / tf.reduce_sum(src_mask)
-
-    return encoder_output, loss_enc
+		
+	# for visualization (Baoosong)
+    if params.outweights:
+        encoder_output,enc_atts = transformer_encoder(encoder_input, enc_attn_bias, params)
+        return encoder_output, enc_atts		
+    else:
+        encoder_output = transformer_encoder(encoder_input, enc_attn_bias, params)
+        return encoder_output
 
 
 def decoding_graph(features, state, mode, params):
@@ -443,24 +435,40 @@ def decoding_graph(features, state, mode, params):
         decoder_input = tf.nn.dropout(decoder_input, keep_prob)
 
     encoder_output = state["encoder"]
-
+    #for visulization (Baosong)		
+    if params.outweights: enc_atts=state["enc_atts"]
     if mode != "infer":
-        decoder_output, sum_diffheads = transformer_decoder(decoder_input, encoder_output,
+        decoder_output = transformer_decoder(decoder_input, encoder_output,
                                              dec_attn_bias, enc_attn_bias,
-                                             params)
+                                             params)											 
     else:
         decoder_input = decoder_input[:, -1:, :]
         dec_attn_bias = dec_attn_bias[:, :, -1:, :]
-        decoder_outputs = transformer_decoder(decoder_input, encoder_output,
+        #for visulization (Baosong)		
+        if params.outweights:        		
+            decoder_outputs = transformer_decoder(decoder_input, encoder_output,
                                               dec_attn_bias, enc_attn_bias,
                                               params, state=state["decoder"])
-
-        decoder_output, sum_diffheads, decoder_state = decoder_outputs
+            decoder_output, decoder_state, dec_atts, encdec_atts = decoder_outputs								  
+        else:
+            decoder_outputs = transformer_decoder(decoder_input, encoder_output,
+                                              dec_attn_bias, enc_attn_bias,
+                                              params, state=state["decoder"])		
+            decoder_output, decoder_state = decoder_outputs
         decoder_output = decoder_output[:, -1, :]
         logits = tf.matmul(decoder_output, weights, False, True)
         log_prob = tf.nn.log_softmax(logits)
-
-        return log_prob, {"encoder": encoder_output, "decoder": decoder_state}
+		#for visulization (Baosong)	
+        if params.outweights:
+	    #oldshape=state["dec_atts"].shape.as_list()
+	    oldshape = tf.concat([tf.shape(state["dec_atts"])[:-1],tf.fill([1,],1)],axis=-1)
+	    #if oldshape[-1]!=None: 
+		#tf.fill(oldshape[-1]+[1], 0.0)
+	    #dec_atts = tf.cond(oldshape[-1]!=None,tf.concat([tf.concat([state["dec_atts"],tf.fill(oldshape[:-1]+[1],0.0)],axis=-1),dec_atts],axis=-2),dec_atts)
+	    dec_atts = tf.concat([tf.concat([state["dec_atts"],tf.fill(oldshape,0.0)],axis=-1),dec_atts],axis=-2)
+	    encdec_atts = tf.concat([state["encdec_atts"],encdec_atts],axis=-2) 
+	    return log_prob, {"encoder": encoder_output, "decoder": decoder_state,"enc_atts":enc_atts, "dec_atts":dec_atts,"encdec_atts":encdec_atts} 
+        else: return log_prob, {"encoder": encoder_output, "decoder": decoder_state}
 
     # [batch, length, channel] => [batch * length, vocab_size]
     decoder_output = tf.reshape(decoder_output, [-1, hidden_size])
@@ -475,25 +483,32 @@ def decoding_graph(features, state, mode, params):
         normalize=True
     )
 
-    ce = tf.reshape(ce, tf.shape(tgt_seq)) #shape [batch, max_tgt_length]
+    ce = tf.reshape(ce, tf.shape(tgt_seq))
 
     if mode == "eval":
         return -tf.reduce_sum(ce * tgt_mask, axis=1)
 
-    #ce = tf.add(ce, (sum_diffheads))    #***add loss in decoder side***
     loss = tf.reduce_sum(ce * tgt_mask) / tf.reduce_sum(tgt_mask)
 
     return loss
 
 
 def model_graph(features, mode, params):
-    encoder_output, loss_enc = encoding_graph(features, mode, params)
-    state = {
-        "encoder": encoder_output
-    }
+    #for visulization (Baosong)	
+    if params.outweights: 
+        encoder_output,enc_atts = encoding_graph(features, mode, params)
+        state = {
+            "encoder": encoder_output,
+            "enc_atts":enc_atts
+            }
+    else: 
+        encoder_output = encoding_graph(features, mode, params)
+        state = {
+            "encoder": encoder_output
+            }
     output = decoding_graph(features, state, mode, params)
 
-    return output #+ loss_enc
+    return output
 
 
 class Transformer(interface.NMTModel):
@@ -537,19 +552,37 @@ class Transformer(interface.NMTModel):
                 params = copy.copy(params)
 
             with tf.variable_scope(self._scope):
-                encoder_output, loss_enc = encoding_graph(features, "infer", params)
+                #for visulization (Baosong)	
+                if params.outweights: encoder_output,enc_atts = encoding_graph(features, "infer", params)
+                else: encoder_output = encoding_graph(features, "infer", params)
                 batch = tf.shape(encoder_output)[0]
-
-                state = {
-                    "encoder": encoder_output,
-                    "decoder": {
-                        "layer_%d" % i: {
-                            "key": tf.zeros([batch, 0, params.hidden_size]),
-                            "value": tf.zeros([batch, 0, params.hidden_size])
+                #for visulization (Baosong)					
+                if params.outweights:
+                    state = {
+                        "encoder": encoder_output,
+                        "enc_atts": enc_atts,						
+                        "decoder": {
+							"layer_%d" % i: {
+								"key": tf.zeros([batch, 0, params.hidden_size]),
+								"value": tf.zeros([batch, 0, params.hidden_size])
+							}
+							for i in range(params.num_decoder_layers)
+                        },
+                        #"dec_atts": tf.zeros([batch,params.num_decoder_layers, params.num_heads, 0, 0]),
+                        "dec_atts": tf.zeros([batch,params.num_decoder_layers, params.num_heads, 0, 0]),
+			#"encdec_atts": tf.zeros([batch,params.num_decoder_layers, params.num_heads, 0, 0])
+			"encdec_atts": tf.zeros([batch,params.num_decoder_layers, params.num_heads, 0, tf.shape(encoder_output)[-2]])						
+                    }				
+                else:state = {
+                        "encoder": encoder_output,
+                        "decoder": {
+							"layer_%d" % i: {
+								"key": tf.zeros([batch, 0, params.hidden_size]),
+								"value": tf.zeros([batch, 0, params.hidden_size])
+							}
+							for i in range(params.num_decoder_layers)
                         }
-                        for i in range(params.num_decoder_layers)
                     }
-                }
             return state
 
         def decoding_fn(features, state, params=None):
@@ -597,15 +630,16 @@ class Transformer(interface.NMTModel):
             initializer="uniform_unit_scaling",
             initializer_gain=1.0,
             learning_rate=1.0,
-            layer_preprocess="layer_norm",
-            layer_postprocess="none",
+            layer_preprocess="none",
+            layer_postprocess="layer_norm",
             batch_size=4096,
             constant_batch_size=False,
             adam_beta1=0.9,
             adam_beta2=0.98,
             adam_epsilon=1e-9,
             clip_grad_norm=0.0,
-            disagreement="outputs"
+            outweights = True,
+	    disagreement = "outputs"
         )
 
         return params
