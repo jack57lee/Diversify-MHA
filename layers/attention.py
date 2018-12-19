@@ -408,7 +408,7 @@ def multiplicative_attention(queries, keys, values, bias, keep_prob=None,
 
 
 def multihead_attention(queries, memories, bias, num_heads, key_size,
-                        value_size, output_size, params, keep_prob=None, myMatrix=None, myBias=None, output=True,
+                        value_size, output_size, params, keep_prob=None, myBias=None, output=True,
                         state=None, dtype=None, scope=None):
     """ Multi-head scaled-dot-product attention with input/output
         transformations.
@@ -480,8 +480,6 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         x = combine_heads(results["outputs"])
 
         # new combine heads
-        # new_queries = linear(queries, key_size, True, True, scope="new_q_transform")
-        # new_queries *= key_depth_per_head ** -0.5
         # x = high_combine_heads(results["outputs"])
         
         # if myBias is None:
@@ -489,8 +487,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
             
         diff_output = diff_outputs(results["outputs"]) #shape [batch, q_length]
         diff_position = diff_positions(weights)
-        # head_classification = heads_classification(results["outputs"], myMatrix, myBias) #shape []
-
+       
         if params.disagreement == "outputs":
             diffheads = diff_output
         elif params.disagreement == "subspaces":
