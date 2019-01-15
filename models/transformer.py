@@ -326,6 +326,14 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     )
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
+                if layer == 0:
+                    output_per_layer = tf.expand_dims(x, 2) #[batch, len, 1, hidden]
+                else:
+                    output_per_layer = tf.concat([output_per_layer, tf.expand_dims(x, 2)], axis=2)
+
+        combined_output = tf.reshape(output_per_layer, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size*6])
+        # combined_output = bilinear_agg(combined_output, params)
+        combined_output = layers.nn.linear(combined_output, params.hidden_size, True, True, scope="layer_agg")
 
         outputs = _layer_process(x, params.layer_preprocess)
         sum_diffheads_self = tf.reduce_mean(list(diffheads_self.values()), 0)
