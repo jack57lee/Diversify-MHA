@@ -249,7 +249,7 @@ def transformer_encoder(inputs, bias, mode, params, dtype=None, scope=None):
                 else:
                     output_per_layer = tf.concat([output_per_layer, tf.expand_dims(x, 2)], axis=2)
 
-        combined_output = tf.reshape(output_per_layer, [tf.shape(x)[0], tf.shape(x)[1], -1]) #[batch,len,hidden*layers]
+        combined_output = tf.reshape(output_per_layer, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size*6])
         # combined_output = bilinear_agg(combined_output, params)
         combined_output = layers.nn.linear(combined_output, params.hidden_size, True, True, scope="layer_agg")
 
