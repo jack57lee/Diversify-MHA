@@ -191,36 +191,6 @@ def diff_positions(inputs, name=None):
         return mul_diff
 
 
-def heads_classification(inputs, myMatrix, myBias,name=None):
-    """ Calculate the cross_entropy of 8 heads classification
-    :param inputs: A tensor with shape [batch, heads, len_q, channels]
-    :param name: An optional string
-    :returns: A tensor with shape [1], reduce_mean
-    """
-
-    with tf.name_scope(name, default_name="heads_classification", values=[inputs,myMatrix,myBias]):
-        x = inputs
-        batch = tf.shape(x)[0] # is None
-        heads = x.shape[1].value # 8
-        len_q = tf.shape(x)[2] # is None
-        channels = x.shape[3].value # 64
-        label = tf.range(heads) #shape [heads]
-        x = tf.transpose(x, [0, 2, 1, 3])  #shape [batch, len_q, heads, channels]
-
-        label_word = tf.tile(label, [batch*len_q]) #shape[batch*len_q*heads]
-        x_word = tf.reshape(x, [-1, channels])
-        logit_word =linear(x_word, heads, True, True, scope="head_class")  #shape [batch*len_q*heads, heads]
-        ce_word = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label_word,logits=logit_word) #shape[batch*len_q*heads]
-        output_word = tf.reduce_mean(ce_word)
-
-        label_senten = tf.tile(label, [batch]) #shape[batch*heads]
-        x_senten = tf.reshape(tf.reduce_mean(x,axis=[1]), [-1, channels]) #shape [batch*heads, channels]
-        logit_senten = linear(x_senten, heads, True, True, scope="heads_class")  #shape [batch*heads, heads]
-        ce_senten = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label_senten,logits=logit_senten) #shape[batch*heads]
-        output_senten = tf.reduce_mean(ce_senten)
-
-        return output_word
-
 def attention_bias(inputs, mode, inf=-1e9, name=None):
     """ A bias tensor used in attention mechanism
     :param inputs: A tensor
@@ -498,7 +468,7 @@ def multihead_attention(queries, memories, bias, num_heads, key_size,
         output = False  # aggregate outside
         if output:
             outputs = linear(x, output_size, True, True,
-                             scope="new_output_transform")
+                             scope="output_transform")
         else:
             outputs = x
 

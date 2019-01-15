@@ -192,28 +192,28 @@ def em_routing(output_heads, params):   #[batch, length, heads * channels]
         return outputs
 
 
+def bilinear_agg(inputs, params):
+    with tf.variable_scope(scope, default_name="bilinear_agg", values=[inputs]):
+        c = inputs #[batch, len, hidden*layers]
+        c1 = layers.nn.linear(c, params.hidden_size, True, True, scope="c1_transform") #[batch, len, hidden]
+        c2 = layers.nn.linear(c, params.hidden_size, True, True, scope="c2_transform") #[batch, len, hidden]    
+        outputs = c1 * c2
+        outputs = tf.concat([outputs, c], -1) #concact to consider first-order
+
+        return outputs #[batch, len ,hidden*2]
+
+
 def transformer_encoder(inputs, bias, mode, params, dtype=None, scope=None):
     with tf.variable_scope(scope, default_name="encoder", dtype=dtype,
                            values=[inputs, bias]):
         x = inputs # [batch, len, dim]
         diffheads_self = {}
+        output_per_layer = 0.0
 
         for layer in range(params.num_encoder_layers):
             layer_name = "layer_%d" % layer
             with tf.variable_scope("layer_%d" % layer):
                 with tf.variable_scope("self_attention"):
-                    output = _ffn_layer_tanh(_layer_process(x, params.layer_preprocess), params.hidden_size, 2)
-                    # [batch, len, 2], before softmax
-                    if mode == "train":
-                        tau = 1 / (tf.nn.softplus(layers.nn.linear(x, 1, True, True, scope="tau_transform")) + 1)
-                        mask = relaxed_onehot_categorical.RelaxedOneHotCategorical(temperature=tau, logits=output).sample()
-                        mask_hard = tf.cast(tf.one_hot(tf.argmax(mask,-1),2), mask.dtype)
-                        mask = tf.stop_gradient(mask_hard - mask) + mask
-                    else:
-                        mask = tf.nn.softmax(output)
-                        mask = tf.Print(mask, [layer, mask[:,0:10,0]], summarize=20)
-                        mask = tf.cast(tf.greater(mask, 0.5), mask.dtype)
-                    mask0 = tf.expand_dims(mask[:,:,0], -1)
                     
                     y = layers.attention.multihead_attention(
                         _layer_process(x, params.layer_preprocess),
@@ -228,13 +228,10 @@ def transformer_encoder(inputs, bias, mode, params, dtype=None, scope=None):
                         myBias=1,
                     )
 
-                    diffheads_self[layer_name] = mask[:,:,0]
+                    diffheads_self[layer_name] = y["diffheads"]
                     y = y["outputs"]
-                    y1 = em_routing(y, params)
-                    y2 = layers.nn.linear(y, 512, True, True, scope="out_transform")
-                    y = y1
-                    # y = mask0*y1 + (1-mask0)*y2
-                    #### dynamically choose whether routing
+                    # y = em_routing(y, params)
+                    y = layers.nn.linear(y, params.hidden_size, True, True, scope="out_transform")
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
 
@@ -247,6 +244,14 @@ def transformer_encoder(inputs, bias, mode, params, dtype=None, scope=None):
                     )
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
+                if layer == 0:
+                    output_per_layer = tf.expand_dims(x, 2) #[batch, len, 1, hidden]
+                else:
+                    output_per_layer = tf.concat([output_per_layer, tf.expand_dims(x, 2)], axis=2)
+
+        combined_output = tf.reshape(output_per_layer, [tf.shape(x)[0], tf.shape(x)[1], -1]) #[batch,len,hidden*layers]
+        # combined_output = bilinear_agg(combined_output, params)
+        combined_output = layers.nn.linear(combined_output, params.hidden_size, True, True, scope="layer_agg")
 
         outputs = _layer_process(x, params.layer_preprocess)
         sum_diffheads_self = tf.reduce_mean(list(diffheads_self.values()), 0) # shape [batch, len_q]
@@ -288,7 +293,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
 
                     diffheads_self[layer_name] = y["diffheads"]
                     y = y["outputs"]
-                    y = layers.nn.linear(y, 512, True, True, scope="out_transform")
+                    y = layers.nn.linear(y, params.hidden_size, True, True, scope="out_transform")
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
 
@@ -308,7 +313,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
 
                     diffheads_ecdc[layer_name] = y["diffheads"]
                     y = y["outputs"]
-                    y = layers.nn.linear(y, 512, True, True, scope="out_transform")
+                    y = layers.nn.linear(y, params.hidden_size, True, True, scope="out_transform")
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
 
