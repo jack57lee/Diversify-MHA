@@ -80,7 +80,7 @@ def squash(vector):
     epsilon = 1e-9
     vec_squared_norm = tf.reduce_sum(tf.square(vector), -1, keep_dims=True)
     scalar_factor = vec_squared_norm / (1 + vec_squared_norm) / tf.sqrt(vec_squared_norm + epsilon)
-    vec_squashed = scalar_factor * vector  #element-wise
+    vec_squashed = scalar_factor * vector  # element-wise
     return(vec_squashed)
 
 def dynamic_routing(output_heads, params):   #[batch, length, heads * channels]
